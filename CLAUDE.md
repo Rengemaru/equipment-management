@@ -198,6 +198,7 @@ cd web; npm run build; npm test; cd ..
 ├── assets/fonts/              # NotoSansJP.ttf（embed する）
 ├── .env.example               # 環境変数の雛形（.env はコミットしない）
 ├── Dockerfile
+├── compose.yaml               # Compose v2。`version:` キーは書かない（廃止済み）
 ├── Makefile                   # macOS / Linux
 └── make.ps1                   # Windows（Makefile と同じタスク名）
 ```
@@ -224,6 +225,8 @@ cd web; npm run build; npm test; cd ..
 | 初期admin作成 | `make create-admin` | `.\make.ps1 create-admin` |
 | Dockerビルド | `make docker-build` | `.\make.ps1 docker-build` |
 | Docker起動 | `make docker-up` | `.\make.ps1 docker-up` |
+| Docker停止 | `make docker-down` | `.\make.ps1 docker-down` |
+| Dockerログ | `make docker-logs` | `.\make.ps1 docker-logs` |
 
 ### Windows 固有の注意
 
@@ -257,6 +260,46 @@ brew install go
 ```
 
 `Makefile` / `make.ps1` が未整備なら、まず作ること。**コマンドを覚えさせない。**
+
+---
+
+## Docker / Compose
+
+オンプレの本番はもちろん、**開発でも Compose で起動できる状態を保つ。** 引き継いだ人が
+Go も Node も入れずに、`docker compose up` だけで動かせることに意味がある。
+
+### 前提
+
+- **Compose v2 を使う。** コマンドは `docker compose`（スペース区切り）。ハイフンの `docker-compose` は v1 の形式で、v1 自体は EOL
+- ファイル名は `compose.yaml`（`docker-compose.yml` は旧名。どちらも読まれるが新しい方に寄せる）
+- **`version:` キーを書かない。** Compose v2 では廃止済みで、書くと警告が出る
+
+### 構成
+
+サービスは**アプリ1つだけ。** DBコンテナは不要（SQLiteはバイナリに同居する）。
+
+- ポート公開、`env_file: .env`
+- **`restart: unless-stopped`**。部室のマシンは電源が落ちる前提で、再起動後に自動復帰させる
+- ヘルスチェックは `/healthz` を叩く
+
+### 落とし穴：SQLite をホストのバインドマウントに置かない
+
+**SQLiteのファイルは名前付きボリュームに置く。** ホストディレクトリのバインドマウントにしない。
+
+WALモードはファイルロックに依存するが、**Docker Desktop（Windows / macOS）のバインドマウントはロックの挙動がホストと異なり、`database is locked` や DB破損を起こす。**
+Linux本番では動いて開発機だけで壊れる、という最悪の再現性になる。
+
+同じ理由で、`uploads/`（備品写真）も名前付きボリュームにする。
+
+### 落とし穴：バックアップはボリュームから取る
+
+名前付きボリュームにするとホストから直接ファイルが見えなくなる。**バックアップ手順を README に必ず書く。**
+WALモードのため単純コピーは危険で、`sqlite3 .backup` をコンテナ内で実行した結果を取り出す。
+
+```powershell
+docker compose exec app sqlite3 /data/app.db ".backup '/data/backup.db'"
+docker compose cp app:/data/backup.db .\backup.db
+```
 
 ---
 
@@ -357,6 +400,9 @@ DTO を介して変換する。スキーマ変更が即 API の破壊になら�
 - [ ] `.env.example`（`HOST_URL`, `DB_PATH`, `SESSION_SECRET`, `COOKIE_SECURE`, `UPLOAD_DIR`）
 - [ ] `README.md` 雛形（セットアップ手順）
 
+Docker は M1 の仕上げで作る（中身が無い段階でコンテナ化しても検証できないため）。
+ただし **`/healthz` は M0 で用意する**。Compose のヘルスチェックがこれに依存する。
+
 ### M1: 基盤 + 備品マスタ + QR発行
 
 `docs/m1-implementation-spec.md` が仕様。**バックエンドを先に完成させる。** 各APIが `go test` で検証できる状態にしてから画面を作る。
@@ -413,7 +459,11 @@ DTO を介して変換する。スキーマ変更が即 API の破壊になら�
 
 **仕上げ**
 - [ ] フロントのビルド成果物を Go バイナリに `embed`（**単一バイナリで起動する**）
-- [ ] Dockerfile（マルチステージ）
+- [ ] Dockerfile（マルチステージ。Goビルド → Nodeビルド → 実行イメージ）
+- [ ] `compose.yaml`（アプリ1サービス、名前付きボリューム、`restart: unless-stopped`、ヘルスチェック）
+- [ ] `docker compose up` だけで起動し、**ブラウザからログインまで通ることを確認**
+- [ ] コンテナ内での `-create-admin` 実行手順を確立（`docker compose exec`）
+- [ ] バックアップ/リストアの実演（`.backup` を取り、**そこから復元できることまで確認する**）
 - [ ] README（セットアップ・環境変数・**バックアップ手順**・admin追加手順・引き継ぎ事項）
 - [ ] 受け入れ条件の実機確認（**ラベルを実際に印刷し、実スマホの標準カメラで読む**）
 
