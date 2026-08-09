@@ -238,15 +238,16 @@ npm run dev            # コンテナ内（web/ で）
 
 | やること | macOS | Windows (PowerShell) |
 |---|---|---|
+| タスク一覧 | `make` | `.\make.ps1` |
 | 開発環境の起動 | `make up` | `.\make.ps1 up` |
 | 停止 | `make down` | `.\make.ps1 down` |
 | コンテナ内シェル | `make sh` | `.\make.ps1 sh` |
-| Goテスト | `make test` | `.\make.ps1 test` |
-| フロントテスト | `make test-web` | `.\make.ps1 test-web` |
-| フォーマット | `make fmt` | `.\make.ps1 fmt` |
 | ログ | `make logs` | `.\make.ps1 logs` |
-| 初期admin作成 | `make create-admin` | `.\make.ps1 create-admin` |
-| 本番イメージのビルド | `make build` | `.\make.ps1 build` |
+| フォーマット（gofmt + vet） | `make fmt` | `.\make.ps1 fmt` |
+| Goテスト | `make test` | `.\make.ps1 test` |
+
+`test-web` / `create-admin` / `build` は、**対象の機能を実装した時に足す。**
+動かないターゲットを先に置くと、壊れているのか未実装なのか区別できなくなる。
 
 **タスクを増やすときは `Makefile` と `make.ps1` の両方に追加する。** 片方だけ更新すると、環境を移った瞬間に動かなくなる。
 
@@ -264,6 +265,22 @@ npm run dev            # コンテナ内（web/ で）
 さらに、**PowerShell 5.1 はネイティブ実行ファイルへ渡す引数のクォートを壊す。**
 `docker compose exec dev bash -c '... echo "a b" ...'` のような引数は、コンテナに届く前に単語分割される。
 複数行・クォート入りのコマンドをコンテナで実行したいときは、**スクリプトをファイルに書いて渡す。**
+
+### `.ps1` は UTF-8 BOM 付きで保存する（必須）
+
+**PowerShell 5.1 は BOM の無い `.ps1` を ANSI（日本語環境では Shift_JIS）として読む。**
+UTF-8 で保存すると日本語コメントや文字列が文字化けし、**壊れたマルチバイト列が改行を飲み込んでスクリプト自体がパースエラーになる。**
+実際にこれで `make.ps1` が動かなくなった。
+
+エディタで「UTF-8 with BOM」を選ぶか、次で変換する。
+
+```powershell
+$p = '.\make.ps1'
+$t = [System.IO.File]::ReadAllText($p, [System.Text.UTF8Encoding]::new($false))
+[System.IO.File]::WriteAllText($p, $t, [System.Text.UTF8Encoding]::new($true))
+```
+
+Go・TypeScript・Markdown・`Makefile` は BOM を付けない。**`.ps1` だけの例外。**
 
 ### コンテナ内でコマンドを実行するときは `bash -c` を使う
 
@@ -441,7 +458,7 @@ DTO を介して変換する。スキーマ変更が即 API の破壊になら�
       （Go 1.26.5 / Node 22.23.2 が動作。`/data` が ext4 ボリュームであることを確認済み）
 - [x] `go mod init` + `cmd/server/main.go` が起動して `/healthz` を返す
       （`internal/` 配下は各パッケージを実装する時に作る。空ディレクトリを先に置かない）
-- [ ] `Makefile` と `make.ps1`（`docker compose` の薄いラッパ。同じタスク名で両方同時に更新する）
+- [x] `Makefile` と `make.ps1`（`docker compose` の薄いラッパ。同じタスク名で両方同時に更新する）
 - [ ] `.env.example`（`HOST_URL`, `DB_PATH`, `SESSION_SECRET`, `COOKIE_SECURE`, `UPLOAD_DIR`）
 - [ ] `README.md` 雛形（Docker Desktop + VS Code だけで動き出せる手順）
 
