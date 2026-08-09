@@ -11,6 +11,12 @@
 
 **利用者は数十名の学生。主にスマートフォンから使う。オンプレミスで運用する。**
 
+### 現在地
+
+**M0（着手準備）。実装コードはまだ無く、仕様書のみ。** 次にやることは「タスク一覧」の先頭の未チェック項目。
+
+リポジトリ: https://github.com/Rengemaru/equipment-management
+
 ---
 
 ## 最重要：開発順序を厳守する
@@ -31,6 +37,89 @@
 - **M4は必ず最後。** データ構造が固まる前にAPIを公開すると、サイネージ側を壊さずに変更できなくなる
 - 各マイルストーンの受け入れ条件は `docs/m{N}-implementation-spec.md` にある。**全て満たしてから次へ進む**
 - M3以降の仕様は M1・M2 の運用後に見直す前提。**実装前に仕様書の妥当性を確認する**
+
+---
+
+## 開発フローとコミット規約
+
+### 1コミット = 1タスク
+
+**「タスク一覧」の1項目を終えるたびにコミットする。** まとめてコミットしない。
+
+数年で担当者が入れ替わるプロジェクトでは、**履歴が唯一の引き継ぎ資料**になる。
+「なぜこのコードがあるのか」をコミット単位で追えることが、コードの読みやすさと同じ重みを持つ。
+20ファイル変更の巨大コミットは、後から読む人にとって存在しないのと同じ。
+
+### コミットの単位が守るべき条件
+
+- **そのコミット単体でビルドが通る。** 壊れた状態を履歴に残さない
+- **そのコミット単体で意味が完結している。** 「途中まで」をコミットしない
+- **押せないボタンを含めない。** UIを追加するコミットは、そのUIが機能する状態にする
+- タスクが大きすぎてこれを満たせないと分かったら、**タスクの方を分割する**
+
+### コミット前チェックリスト
+
+Go を触ったとき:
+
+```powershell
+.\make.ps1 fmt      ; if ($?) { .\make.ps1 test }   # Windows
+```
+```bash
+make fmt && make test                                # macOS
+```
+
+フロントを触ったとき:
+
+```powershell
+cd web; npm run build; npm test; cd ..
+```
+
+**通らないならコミットしない。** 「後で直す」は必ず忘れられる。
+
+### コミットメッセージ
+
+```
+<type>(<scope>): <日本語で1行、何をしたか>
+
+<なぜそうしたか。自明なら省略してよい>
+<仕様書のどこに対応するか（例: m1-spec §5）>
+```
+
+| type | 使うとき |
+|---|---|
+| `feat` | 機能追加 |
+| `fix` | バグ修正 |
+| `docs` | 仕様書・README のみの変更 |
+| `test` | テストのみの追加・修正 |
+| `refactor` | 挙動を変えない整理 |
+| `build` | Makefile・Dockerfile・依存の変更 |
+| `chore` | それ以外（.gitignore など） |
+
+`<scope>` は `auth` / `item` / `loan` / `label` / `db` / `web` / `httpx` など、触った領域。
+
+**件名に「なぜ」を書かない。本文に書く。** 件名は一覧で読むもの、本文は掘るときに読むもの。
+
+### ブランチ運用
+
+- マイルストーンごとにブランチを切る（`m1`, `m2`, ...）
+- タスクごとにそのブランチへコミットする
+- マイルストーンの受け入れ条件を**全て満たしてから** `main` へマージし、タグを打つ（`v0.1.0-m1`）
+- **`main` は常にビルドが通り、受け入れ条件を満たした状態を保つ**
+
+### 仕様とコードを同じコミットで更新する
+
+スキーマや挙動を変えたら、**同じコミットの中で**以下も更新する。
+
+- `docs/schema.sql`（マイグレーションを追加したとき）
+- 該当する `docs/m{N}-implementation-spec.md`
+- `CLAUDE.md` の「タスク一覧」のチェックボックス
+
+別コミットに分けると、**仕様書だけが古いまま残る。** これが数年後に一番効いてくる負債。
+
+### 仕様と食い違ったら
+
+**勝手に実装を優先せず、どちらが正しいかを確認する。** 確認できるまで、その部分は実装しない。
+判断して進めた場合は、**その判断をコミット本文に残す。**
 
 ---
 
@@ -61,7 +150,8 @@
 | フロントエンド | React + TypeScript + Vite + React Router + Tailwind |
 | QR生成 | `github.com/skip2/go-qrcode` |
 | PDF生成 | `github.com/go-pdf/fpdf` |
-| メール | 標準 `net/smtp` |
+| パスワードハッシュ | `golang.org/x/crypto/bcrypt`（依存最小方針の唯一の例外） |
+| メール | 標準 `net/smtp`（**M2から**。M1は認証がメール非依存のため使わない） |
 | コンテナ | Docker（マルチステージ） |
 
 ### 依存を増やさない
@@ -83,13 +173,16 @@
 ```
 .
 ├── CLAUDE.md
+├── README.md                  # セットアップ・バックアップ手順（引き継ぎ先が最初に読む）
 ├── docs/                      # 仕様書（変更時はここも更新する）
-│   ├── requirements.md
+│   ├── equipment-management-requirements.md
 │   ├── url-design.md
+│   ├── schema.sql             # 現行スキーマの参照用
+│   ├── inventory-template.xlsx
 │   └── m1〜m4-implementation-spec.md
 ├── cmd/server/main.go
 ├── internal/
-│   ├── auth/                  # マジックリンク・セッション
+│   ├── auth/                  # ID+パスワード認証・セッション
 │   ├── item/                  # 備品マスタ
 │   ├── loan/                  # 貸出（M2）
 │   ├── report/                # 所在不明・破損報告（M2/M3）
@@ -103,42 +196,67 @@
 │       └── migrations/        # 0001_init.sql, 0002_....sql
 ├── web/                       # React + Vite
 ├── assets/fonts/              # NotoSansJP.ttf（embed する）
-├── schema.sql                 # 現行スキーマの参照用
+├── .env.example               # 環境変数の雛形（.env はコミットしない）
 ├── Dockerfile
-└── Makefile
+├── Makefile                   # macOS / Linux
+└── make.ps1                   # Windows（Makefile と同じタスク名）
 ```
+
+`docs/schema.sql` は**参照用のスナップショット**。実際にDBへ適用されるのは `internal/db/migrations/` の連番SQL。両方を必ず同時に更新する。
 
 ---
 
-## コマンド（macOS）
+## コマンド
 
+**開発は macOS と Windows の両方で行う。** `make` は Windows に標準で存在しないため、
+`Makefile`（macOS/Linux）と `make.ps1`（Windows）で**同じタスク名**を提供する。
+片方だけ更新すると環境を移った瞬間に動かなくなるので、**タスクを増やすときは必ず両方に追加する。**
+
+| やること | macOS | Windows (PowerShell) |
+|---|---|---|
+| 依存取得 | `make deps` | `.\make.ps1 deps` |
+| APIサーバ起動 | `make dev-api` | `.\make.ps1 dev-api` |
+| フロント起動 | `make dev-web` | `.\make.ps1 dev-web` |
+| ビルド（単一バイナリ） | `make build` | `.\make.ps1 build` |
+| Goテスト | `make test` | `.\make.ps1 test` |
+| フロントテスト | `make test-web` | `.\make.ps1 test-web` |
+| フォーマット | `make fmt` | `.\make.ps1 fmt` |
+| 初期admin作成 | `make create-admin` | `.\make.ps1 create-admin` |
+| Dockerビルド | `make docker-build` | `.\make.ps1 docker-build` |
+| Docker起動 | `make docker-up` | `.\make.ps1 docker-up` |
+
+### Windows 固有の注意
+
+このリポジトリは **PowerShell 5.1** を前提に書く。以下は使えない。
+
+- `&&` / `||` によるコマンド連結 → `;` と `if ($?) { ... }` を使う
+- `head` / `tail` / `which` / `touch` / `rm -rf` などの Unix コマンド
+  → `Select-Object -First N` / `-Last N`、`(Get-Command x).Source`、`New-Item`、`Remove-Item -Recurse -Force`
+- ヒアストリングの終端 `'@` は**行頭（列0）に置く。** インデントすると構文エラーになる
+
+DBの中身を見る:
+
+```powershell
+sqlite3 data\app.db          # Windows
+```
 ```bash
-# 依存取得
-go mod download
-cd web && npm install && cd ..
-
-# 開発（バックエンド）
-make dev-api          # go run ./cmd/server
-
-# 開発（フロントエンド）
-make dev-web          # cd web && npm run dev
-
-# ビルド（フロントをembedして単一バイナリ）
-make build
-
-# テスト
-make test             # go test ./...
-make test-web         # cd web && npm test
-
-# DBの中身を見る
-sqlite3 data/app.db    # 未インストールなら brew install sqlite
-
-# Dockerビルド・起動
-make docker-build
-make docker-up
+sqlite3 data/app.db          # macOS（未インストールなら brew install sqlite）
 ```
 
-`Makefile` が未整備なら、まず作ること。**コマンドを覚えさせない。**
+### 環境ごとのセットアップ
+
+```powershell
+# Windows: Go の導入（未インストールなら）
+winget install --id GoLang.Go --exact
+# インストール後、PATH を反映するためターミナルを開き直す
+```
+
+```bash
+# macOS
+brew install go
+```
+
+`Makefile` / `make.ps1` が未整備なら、まず作ること。**コマンドを覚えさせない。**
 
 ---
 
@@ -169,7 +287,18 @@ WALモードで動くため、単純なファイルコピーは危険。`.backup
 
 `/login?next=/i/0042` の `next` による復帰を必ず実装する。**QRから来た未ログインユーザーを認証後にトップへ放り出すと、もう一度QRを読み直させることになる。この一手間が記録漏れの直接原因になる。**
 
-`next` は自サイト内の相対パスのみ許可（オープンリダイレクト対策）。
+`next` は自サイト内の相対パスのみ許可（オープンリダイレクト対策）。`/` で始まり `//` で始まらないものだけを通す。
+
+### Secure Cookie と HTTP 運用の衝突
+
+オンプレで HTTPS を用意せず HTTP で公開すると、`Secure` 付き Cookie はブラウザに保存されず**ログインが無限ループする。**
+`COOKIE_SECURE` 環境変数で切り替え可能にし、**デフォルトは `true`。** HTTP 運用時のみ明示的に落とす。
+
+### CSVヘッダの正規化
+
+`inventory-template.xlsx` のヘッダは必須列に全角スペース＋アスタリスクが付く（`品名　*`）。
+**照合前に `　*`・空白・BOM を除去する。** 完全一致で判定すると、テンプレートを書き出したCSVが1件も取り込めない。
+テンプレートは空行を200行持つため、空行スキップも必須。
 
 ### PDFの日本語フォント
 
@@ -210,16 +339,141 @@ DTO を介して変換する。スキーマ変更が即 API の破壊になら�
 
 ---
 
+## タスク一覧
+
+**1項目 = 1コミット。** 終えたらチェックを入れ、同じコミットに含める。
+上から順に進める（下のタスクは上のタスクの成果物に依存している）。
+
+各項目の「完了」は、**その状態を人間が確認できること**を指す。テストが書ける箇所はテストで、
+そうでない箇所（PDF・QR・画面）は実際に目で見て確認する。
+
+### M0: 着手準備（コードを書く前に終わらせる）
+
+- [x] Git 初期化・`.gitignore` / `.gitattributes` 作成・GitHub 接続
+- [x] 認証方式の決定（ID + パスワード）と仕様書への反映
+- [ ] **Go のインストール**（Windows: `winget install --id GoLang.Go --exact` / macOS: `brew install go`）
+- [ ] `go mod init` + ディレクトリ骨格 + `cmd/server/main.go` が起動して `/healthz` を返す
+- [ ] `Makefile` と `make.ps1`（同じタスク名。両方同時に更新する）
+- [ ] `.env.example`（`HOST_URL`, `DB_PATH`, `SESSION_SECRET`, `COOKIE_SECURE`, `UPLOAD_DIR`）
+- [ ] `README.md` 雛形（セットアップ手順）
+
+### M1: 基盤 + 備品マスタ + QR発行
+
+`docs/m1-implementation-spec.md` が仕様。**バックエンドを先に完成させる。** 各APIが `go test` で検証できる状態にしてから画面を作る。
+
+**DB基盤**
+- [ ] マイグレーションランナー（`embed` + 連番SQL、適用済みバージョンを記録）
+- [ ] `0001_init.sql`（`docs/schema.sql` 相当）
+- [ ] DB接続（`modernc.org/sqlite`、WAL、`foreign_keys = ON`）
+
+**HTTP基盤**
+- [ ] 設定の読み込み（環境変数 → 構造体。必須値が無ければ起動時に落とす）
+- [ ] `httpx` ルーター骨格 + アクセスログ + panic recover
+
+**認証・権限**
+- [ ] `users` のデータアクセス層 + bcrypt によるハッシュ化・検証
+- [ ] `-create-admin` サブコマンド（**これが無いと誰もログインできない**）
+- [ ] ログインAPI（成功/失敗を返す。**存在しないIDと誤パスワードでメッセージを変えない**）
+- [ ] セッション発行・Cookie 設定・検証ミドルウェア（有効期限1年、`COOKIE_SECURE` 対応）
+- [ ] `login_attempts` による総当たり対策（一定回数で遅延またはロック）
+- [ ] `next` による復帰 + オープンリダイレクト対策（**テスト必須**：`//evil.com` や絶対URLを弾く）
+- [ ] パスワード変更API + `must_change_password` の強制遷移
+- [ ] ロール検証ミドルウェア（**テスト必須**：member が書き込みAPIを叩くと拒否される）
+- [ ] ユーザー管理API（admin のみ。作成時に初期パスワードを一度だけ返す、無効化、パスワード再発行）
+
+**備品マスタ**
+- [ ] 備品の読み取りAPI（一覧・検索・詳細。member も可）
+- [ ] コードの自動採番（`0001` 形式、最大値+1、**再利用しない**）
+- [ ] 備品の書き込みAPI（admin のみ。物理削除せず `condition = '廃棄'`）
+- [ ] 写真アップロード（ファイルシステムへ保存し `photo_path` を持つ）
+
+**CSVインポート/エクスポート**
+- [ ] CSVパーサ（UTF-8 / Shift_JIS、BOM除去、**ヘッダ正規化**、空行スキップ）
+- [ ] インポートのプレビューAPI（何行が何レコードに展開されるか。エラーは行番号付きで全件返す）
+- [ ] インポートの確定API（**トランザクション。全件成功か全件失敗か**）
+- [ ] 全備品のCSVエクスポートAPI（**システムが死んでもデータが残るための保険**）
+
+**QR・ラベル**
+- [ ] QR生成（`/i/{code}`、誤り訂正レベル **M**）
+- [ ] Noto Sans JP の TTF を `embed` し `fpdf` に登録（**日本語1行が出ることを目視確認してからコミット**）
+- [ ] ラベルPDF（A4 24面 / 70×33.9mm、QR + コード + 品名）
+- [ ] 印刷範囲の指定（コード範囲・分類）
+
+**フロントエンド**
+- [ ] Vite + TypeScript + Tailwind + React Router の雛形
+- [ ] APIクライアント + レスポンス型定義 + 認証状態の管理
+- [ ] `/login` と `/password`
+- [ ] `/items`（一覧・検索。分類・保管場所・状態でフィルタ）
+- [ ] `/i/{code}`（**M1では表示のみ。貸出ボタンを置かない**）
+- [ ] `/admin/items`（マスタ管理）
+- [ ] `/admin/items/new`（登録フォーム、写真添付）
+- [ ] `/admin/items/import`（プレビュー → 確定）
+- [ ] `/admin/labels`（範囲指定 → PDF出力）
+- [ ] `/admin/users`（ユーザー管理）
+
+**仕上げ**
+- [ ] フロントのビルド成果物を Go バイナリに `embed`（**単一バイナリで起動する**）
+- [ ] Dockerfile（マルチステージ）
+- [ ] README（セットアップ・環境変数・**バックアップ手順**・admin追加手順・引き継ぎ事項）
+- [ ] 受け入れ条件の実機確認（**ラベルを実際に印刷し、実スマホの標準カメラで読む**）
+
+### M2: 貸出・返却
+
+`docs/m2-implementation-spec.md` が仕様。**M1の受け入れ条件を全て満たしてから着手する。**
+
+- [ ] SMTP 送信の基盤（環境変数で接続先。**未設定なら送信をスキップして動く**）
+- [ ] 借用API（返却予定日は借用日+14日をデフォルト。**二重貸出を409で返す。500にしない**）
+- [ ] 自由利用品への借用APIを400で拒否（**UIで隠すだけにしない**）
+- [ ] 所在不明品の借用時に、在庫へ自動復帰 + 報告を発見済みへ（**追加操作を求めない**）
+- [ ] 返却API（**借用者以外も実行でき、`returned_by` に記録する**）
+- [ ] 代理登録（`registered_by` を記録）+ 本人へのメール通知 + 訂正導線
+- [ ] 事後登録（`borrowed_at` を過去日時に変更できる）
+- [ ] 破損報告API（報告と同時に `condition = '要修理'`。承認を待たない）
+- [ ] 貸出中一覧API / 自分の貸出API
+- [ ] `/i/{code}` の状態分岐（貸出可能・貸出中他人・貸出中自分・自由利用品・廃棄・所在不明）
+- [ ] 借用画面に**現在の状態と備考を表示**（責任の誤帰属を防ぐ）
+- [ ] `/loans`（全員に公開）と `/loans/mine`
+- [ ] `/admin/damages`（破損報告の追認）
+- [ ] **3タップ以内の実機検証**（超えていたらM2は未完了。UIを削る）
+
+### M3: 検知・通知・棚卸し
+
+`docs/m3-implementation-spec.md` が仕様。**着手前に、M1・M2の運用実績を見て仕様を見直す**（通知頻度・棚卸し操作性は実データがないと決まらない）。
+
+- [ ] 所在不明報告（即時反映、承認なし。報告者を記録し複数報告を一覧できる）
+- [ ] 貸出中の備品が報告されたら借用者へ通知
+- [ ] 通知スケジューラ + `notification_log` による冪等性（**起動時にも未送信分を送る**）
+- [ ] 月次通知（借用者ごとに1通へ集約。各行に返却リンク）
+- [ ] 期限超過通知（超過翌日に1通のみ。**毎日送らない**）
+- [ ] 棚卸しの開始・進捗・終了API
+- [ ] ブラウザ内カメラでの連続スキャン（**M3で最も重い。画面遷移させない**）
+- [ ] 終了時、未確認品をプレビューしてから一括で所在不明へ遷移
+- [ ] `/admin/missing`（追認）
+
+### M4: 公開API・サイネージ連携
+
+`docs/m4-implementation-spec.md` が仕様。**必ず最後。着手前にサイネージ側の実装者と表示レイアウトを詰める。**
+
+- [ ] APIトークンの発行・検証（ハッシュ照合、`last_used_at` 更新）+ `/admin/tokens`
+- [ ] DTO層（**ビューを直接返さない**）
+- [ ] `GET /api/v1/summary`（サイネージが1リクエストで完結する形）
+- [ ] `GET /api/v1/items` / `loans/active` / `items/missing`
+- [ ] **個人情報の混入テスト**（`overdue` 以外に個人名が出ないことを明示的に検証）
+- [ ] 60秒キャッシュ + `Cache-Control` + CORS（**ワイルドカードにしない**）
+
+---
+
 ## 参照ドキュメント
 
 | ファイル | 内容 |
 |---|---|
-| `docs/requirements.md` | 要件定義・データモデル・非機能要件 |
+| `docs/equipment-management-requirements.md` | 要件定義・データモデル・非機能要件 |
 | `docs/url-design.md` | URL設計・QRの仕様・画面一覧 |
 | `docs/m1-implementation-spec.md` | M1 詳細仕様と受け入れ条件 |
 | `docs/m2-implementation-spec.md` | M2 詳細仕様と受け入れ条件 |
 | `docs/m3-implementation-spec.md` | M3 詳細仕様と受け入れ条件 |
 | `docs/m4-implementation-spec.md` | M4 詳細仕様と受け入れ条件 |
-| `schema.sql` | 現行スキーマ（参照用） |
+| `docs/schema.sql` | 現行スキーマ（参照用スナップショット） |
+| `docs/inventory-template.xlsx` | 棚卸しシートのテンプレート（CSVインポートの入力元） |
 
 仕様と実装が食い違った場合、**勝手に実装を優先せず、どちらが正しいか確認する。**
