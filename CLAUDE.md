@@ -439,7 +439,8 @@ DTO を介して変換する。スキーマ変更が即 API の破壊になら�
 - [x] 開発環境の決定（**Docker + VS Code Dev Containers。ローカルに Go / Node を入れない**）
 - [x] `Dockerfile` の `dev` ステージ + `compose.dev.yaml` + `.devcontainer/devcontainer.json`
       （Go 1.26.5 / Node 22.23.2 が動作。`/data` が ext4 ボリュームであることを確認済み）
-- [ ] `go mod init` + ディレクトリ骨格 + `cmd/server/main.go` が起動して `/healthz` を返す
+- [x] `go mod init` + `cmd/server/main.go` が起動して `/healthz` を返す
+      （`internal/` 配下は各パッケージを実装する時に作る。空ディレクトリを先に置かない）
 - [ ] `Makefile` と `make.ps1`（`docker compose` の薄いラッパ。同じタスク名で両方同時に更新する）
 - [ ] `.env.example`（`HOST_URL`, `DB_PATH`, `SESSION_SECRET`, `COOKIE_SECURE`, `UPLOAD_DIR`）
 - [ ] `README.md` 雛形（Docker Desktop + VS Code だけで動き出せる手順）
