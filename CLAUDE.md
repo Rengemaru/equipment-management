@@ -15,6 +15,8 @@
 
 **M0（着手準備）。実装コードはまだ無く、仕様書のみ。** 次にやることは「タスク一覧」の先頭の未チェック項目。
 
+開発環境は **Docker + VS Code Dev Containers**。ローカルに Go / Node は入れない。
+
 リポジトリ: https://github.com/Rengemaru/equipment-management
 
 ---
@@ -196,9 +198,12 @@ cd web; npm run build; npm test; cd ..
 │       └── migrations/        # 0001_init.sql, 0002_....sql
 ├── web/                       # React + Vite
 ├── assets/fonts/              # NotoSansJP.ttf（embed する）
+├── .devcontainer/
+│   └── devcontainer.json      # VS Code が dev サービスに接続する設定
 ├── .env.example               # 環境変数の雛形（.env はコミットしない）
-├── Dockerfile
-├── compose.yaml               # Compose v2。`version:` キーは書かない（廃止済み）
+├── Dockerfile                 # dev / build / runtime のマルチステージ
+├── compose.dev.yaml           # 開発用（M0）
+├── compose.yaml               # 本番用（M1の仕上げで作る）
 ├── Makefile                   # macOS / Linux
 └── make.ps1                   # Windows（Makefile と同じタスク名）
 ```
@@ -209,55 +214,58 @@ cd web; npm run build; npm test; cd ..
 
 ## コマンド
 
-**開発は macOS と Windows の両方で行う。** `make` は Windows に標準で存在しないため、
-`Makefile`（macOS/Linux）と `make.ps1`（Windows）で**同じタスク名**を提供する。
-片方だけ更新すると環境を移った瞬間に動かなくなるので、**タスクを増やすときは必ず両方に追加する。**
+### 開発環境は Docker に統一する
+
+**ローカルに Go も Node もインストールしない。** 開発はすべてコンテナ内で行う。
+
+理由は2つ。
+
+1. **開発は macOS と Windows の両方で行う。** ローカル環境に依存させると手順が2本に分かれ、片方が必ず腐る。コンテナに入れれば、ホストの差はほぼ消える
+2. 引き継ぎ手順が**「Docker を入れて `docker compose up`」の1本になる。** 数年で担当者が入れ替わるプロジェクトでは、これ自体が価値になる
+
+前提ツールは **Docker Desktop と VS Code（Dev Containers 拡張）のみ。**
+
+### 日常の操作
+
+VS Code で「Reopen in Container」すると、コンテナ内のターミナルが開く。**その中では素の `go` / `npm` がそのまま使える。**
+
+```bash
+go test ./...          # コンテナ内
+npm run dev            # コンテナ内（web/ で）
+```
+
+ホスト側からは `Makefile` / `make.ps1` 経由で叩く。中身は `docker compose` の薄いラッパ。
 
 | やること | macOS | Windows (PowerShell) |
 |---|---|---|
-| 依存取得 | `make deps` | `.\make.ps1 deps` |
-| APIサーバ起動 | `make dev-api` | `.\make.ps1 dev-api` |
-| フロント起動 | `make dev-web` | `.\make.ps1 dev-web` |
-| ビルド（単一バイナリ） | `make build` | `.\make.ps1 build` |
+| 開発環境の起動 | `make up` | `.\make.ps1 up` |
+| 停止 | `make down` | `.\make.ps1 down` |
+| コンテナ内シェル | `make sh` | `.\make.ps1 sh` |
 | Goテスト | `make test` | `.\make.ps1 test` |
 | フロントテスト | `make test-web` | `.\make.ps1 test-web` |
 | フォーマット | `make fmt` | `.\make.ps1 fmt` |
+| ログ | `make logs` | `.\make.ps1 logs` |
 | 初期admin作成 | `make create-admin` | `.\make.ps1 create-admin` |
-| Dockerビルド | `make docker-build` | `.\make.ps1 docker-build` |
-| Docker起動 | `make docker-up` | `.\make.ps1 docker-up` |
-| Docker停止 | `make docker-down` | `.\make.ps1 docker-down` |
-| Dockerログ | `make docker-logs` | `.\make.ps1 docker-logs` |
+| 本番イメージのビルド | `make build` | `.\make.ps1 build` |
+
+**タスクを増やすときは `Makefile` と `make.ps1` の両方に追加する。** 片方だけ更新すると、環境を移った瞬間に動かなくなる。
 
 ### Windows 固有の注意
 
-このリポジトリは **PowerShell 5.1** を前提に書く。以下は使えない。
+ホスト側のスクリプト（`make.ps1`）は **PowerShell 5.1** を前提に書く。以下は使えない。
 
 - `&&` / `||` によるコマンド連結 → `;` と `if ($?) { ... }` を使う
 - `head` / `tail` / `which` / `touch` / `rm -rf` などの Unix コマンド
   → `Select-Object -First N` / `-Last N`、`(Get-Command x).Source`、`New-Item`、`Remove-Item -Recurse -Force`
 - ヒアストリングの終端 `'@` は**行頭（列0）に置く。** インデントすると構文エラーになる
 
-DBの中身を見る:
+**コンテナ内は Linux なので、この制約は一切かからない。** スクリプトを書く場所を取り違えないこと。
 
-```powershell
-sqlite3 data\app.db          # Windows
-```
-```bash
-sqlite3 data/app.db          # macOS（未インストールなら brew install sqlite）
-```
+### ホットリロードを最初から入れない
 
-### 環境ごとのセットアップ
-
-```powershell
-# Windows: Go の導入（未インストールなら）
-winget install --id GoLang.Go --exact
-# インストール後、PATH を反映するためターミナルを開き直す
-```
-
-```bash
-# macOS
-brew install go
-```
+Go の変更反映は**コンテナの再起動で済ませる**（`make up` し直す）。
+`air` などの監視ツールは依存が増えるうえ、Docker Desktop のバインドマウントではファイル監視が不安定になりやすい。
+**遅さが実際に問題になってから入れる。**
 
 `Makefile` / `make.ps1` が未整備なら、まず作ること。**コマンドを覚えさせない。**
 
@@ -265,21 +273,31 @@ brew install go
 
 ## Docker / Compose
 
-オンプレの本番はもちろん、**開発でも Compose で起動できる状態を保つ。** 引き継いだ人が
-Go も Node も入れずに、`docker compose up` だけで動かせることに意味がある。
-
 ### 前提
 
 - **Compose v2 を使う。** コマンドは `docker compose`（スペース区切り）。ハイフンの `docker-compose` は v1 の形式で、v1 自体は EOL
 - ファイル名は `compose.yaml`（`docker-compose.yml` は旧名。どちらも読まれるが新しい方に寄せる）
 - **`version:` キーを書かない。** Compose v2 では廃止済みで、書くと警告が出る
+- ベースイメージは `golang:1.26-bookworm` / `node:22-bookworm`
+
+### 開発用と本番用を分ける
+
+| ファイル | 用途 | いつ作る |
+|---|---|---|
+| `compose.dev.yaml` | 開発。ソースをバインドマウントし、コンテナ内で `go run` する | **M0** |
+| `compose.yaml` | 本番。ビルド済みバイナリを動かす | **M1の仕上げ** |
+| `.devcontainer/devcontainer.json` | VS Code が `compose.dev.yaml` の dev サービスに接続する設定 | **M0** |
+
+**本番用を先に書かない。** 中身が無い段階でコンテナ化しても検証できず、動かないまま腐る。
+
+`Dockerfile` も同じで、M0 では **`dev` ステージだけ**を書く。ビルド用・実行用ステージは M1 の仕上げで追加する。
 
 ### 構成
 
 サービスは**アプリ1つだけ。** DBコンテナは不要（SQLiteはバイナリに同居する）。
 
 - ポート公開、`env_file: .env`
-- **`restart: unless-stopped`**。部室のマシンは電源が落ちる前提で、再起動後に自動復帰させる
+- **`restart: unless-stopped`**（本番のみ）。部室のマシンは電源が落ちる前提で、再起動後に自動復帰させる
 - ヘルスチェックは `/healthz` を叩く
 
 ### 落とし穴：SQLite をホストのバインドマウントに置かない
@@ -290,16 +308,26 @@ WALモードはファイルロックに依存するが、**Docker Desktop（Wind
 Linux本番では動いて開発機だけで壊れる、という最悪の再現性になる。
 
 同じ理由で、`uploads/`（備品写真）も名前付きボリュームにする。
+**バインドマウントしてよいのはソースコードだけ。**
 
-### 落とし穴：バックアップはボリュームから取る
+### 落とし穴：モジュールキャッシュを名前付きボリュームに置く
 
-名前付きボリュームにするとホストから直接ファイルが見えなくなる。**バックアップ手順を README に必ず書く。**
-WALモードのため単純コピーは危険で、`sqlite3 .backup` をコンテナ内で実行した結果を取り出す。
+`/go/pkg/mod` と `web/node_modules` を名前付きボリュームにしないと、**コンテナを作り直すたびに全依存を再取得する。**
+`node_modules` は特に、ホストとバインドマウントで混ざると OS 差で壊れる（ホストが Windows、コンテナが Linux のため）。
 
-```powershell
-docker compose exec app sqlite3 /data/app.db ".backup '/data/backup.db'"
-docker compose cp app:/data/backup.db .\backup.db
+### 落とし穴：バックアップは Go バイナリの機能として実装する
+
+名前付きボリュームにするとホストから直接ファイルが見えない。さらに**本番イメージは最小構成にするため、`sqlite3` コマンドもシェルも入っていない。**
+そのため「コンテナ内で `sqlite3 .backup` を叩く」手順は成立しない。
+
+**バックアップは `-backup` サブコマンドとして Go バイナリに実装する。** 中身は SQLite の `VACUUM INTO`（WAL稼働中でも一貫したコピーを作れる）。
+
 ```
+docker compose exec app /server -backup /data/backup.db
+docker compose cp app:/data/backup.db ./backup.db
+```
+
+「バイナリ1つで完結させる」という方針とも一致する。**復元できることまで確認して初めて完了。**
 
 ---
 
@@ -394,13 +422,16 @@ DTO を介して変換する。スキーマ変更が即 API の破壊になら�
 
 - [x] Git 初期化・`.gitignore` / `.gitattributes` 作成・GitHub 接続
 - [x] 認証方式の決定（ID + パスワード）と仕様書への反映
-- [ ] **Go のインストール**（Windows: `winget install --id GoLang.Go --exact` / macOS: `brew install go`）
+- [x] 開発環境の決定（**Docker + VS Code Dev Containers。ローカルに Go / Node を入れない**）
+- [ ] `Dockerfile` の `dev` ステージ + `compose.dev.yaml` + `.devcontainer/devcontainer.json
+      （コンテナに入って `go version` / `node --version` が通る）
 - [ ] `go mod init` + ディレクトリ骨格 + `cmd/server/main.go` が起動して `/healthz` を返す
-- [ ] `Makefile` と `make.ps1`（同じタスク名。両方同時に更新する）
+- [ ] `Makefile` と `make.ps1`（`docker compose` の薄いラッパ。同じタスク名で両方同時に更新する）
 - [ ] `.env.example`（`HOST_URL`, `DB_PATH`, `SESSION_SECRET`, `COOKIE_SECURE`, `UPLOAD_DIR`）
-- [ ] `README.md` 雛形（セットアップ手順）
+- [ ] `README.md` 雛形（Docker Desktop + VS Code だけで動き出せる手順）
 
-Docker は M1 の仕上げで作る（中身が無い段階でコンテナ化しても検証できないため）。
+**本番用の `compose.yaml` と Dockerfile のビルド/実行ステージは M1 の仕上げで作る。**
+中身が無い段階で書いても検証できず、動かないまま腐るため。
 ただし **`/healthz` は M0 で用意する**。Compose のヘルスチェックがこれに依存する。
 
 ### M1: 基盤 + 備品マスタ + QR発行
@@ -459,11 +490,12 @@ Docker は M1 の仕上げで作る（中身が無い段階でコンテナ化し
 
 **仕上げ**
 - [ ] フロントのビルド成果物を Go バイナリに `embed`（**単一バイナリで起動する**）
-- [ ] Dockerfile（マルチステージ。Goビルド → Nodeビルド → 実行イメージ）
+- [ ] `-backup` サブコマンド（`VACUUM INTO`。**本番イメージには `sqlite3` もシェルも無い前提**）
+- [ ] Dockerfile に build / runtime ステージを追加（Nodeビルド → Goビルド → 最小実行イメージ）
 - [ ] `compose.yaml`（アプリ1サービス、名前付きボリューム、`restart: unless-stopped`、ヘルスチェック）
 - [ ] `docker compose up` だけで起動し、**ブラウザからログインまで通ることを確認**
 - [ ] コンテナ内での `-create-admin` 実行手順を確立（`docker compose exec`）
-- [ ] バックアップ/リストアの実演（`.backup` を取り、**そこから復元できることまで確認する**）
+- [ ] バックアップ/リストアの実演（`-backup` を取り、**そこから復元できることまで確認する**）
 - [ ] README（セットアップ・環境変数・**バックアップ手順**・admin追加手順・引き継ぎ事項）
 - [ ] 受け入れ条件の実機確認（**ラベルを実際に印刷し、実スマホの標準カメラで読む**）
 
