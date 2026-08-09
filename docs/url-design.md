@@ -47,8 +47,8 @@ https://{host}/
 | `/i/{code}/borrow` | 借用登録（代理登録・事後登録もここ） |
 | `/i/{code}/return` | 返却登録 |
 | `/i/{code}/report-missing` | 所在不明報告 |
-| `/login` | マジックリンク送信 |
-| `/auth/{token}` | メールのリンク先（セッション発行 → `next` へ） |
+| `/login` | ログイン（ID + パスワード。`?next=` で復帰先を指定） |
+| `/password` | パスワード変更（初回ログイン時は強制遷移） |
 
 ### 運営
 | URL | 画面 |

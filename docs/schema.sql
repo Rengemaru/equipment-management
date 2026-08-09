@@ -11,7 +11,17 @@ PRAGMA journal_mode = WAL;
 CREATE TABLE users (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT    NOT NULL,
-    email       TEXT    NOT NULL UNIQUE,
+    -- ログインID。admin が発行する。英数字とハイフン・アンダースコアのみ、大文字小文字を区別しない
+    -- 運用のため小文字に正規化して格納する（'Yamada' と 'yamada' を別人にしない）
+    login_id    TEXT    NOT NULL UNIQUE,
+    -- bcrypt ハッシュ。平文は保存しない
+    password_hash TEXT  NOT NULL,
+    -- 1 = admin が発行した初期パスワードのまま。次回ログイン時に変更を強制する
+    must_change_password INTEGER NOT NULL DEFAULT 1
+                        CHECK (must_change_password IN (0, 1)),
+    -- 通知用。認証には使わないため NULL 可。
+    -- SMTP が使えない環境では未設定のまま運用でき、その場合メール通知はスキップする
+    email       TEXT    UNIQUE,
     role        TEXT    NOT NULL DEFAULT 'member'
                         CHECK (role IN ('admin', 'member')),
     -- 卒業者は is_active=0 にする。DELETE すると貸出履歴が壊れるため削除しない
@@ -20,16 +30,19 @@ CREATE TABLE users (
     updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
--- マジックリンク用の使い捨てトークン。平文は保存せずハッシュのみ
-CREATE TABLE login_tokens (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id     INTEGER NOT NULL REFERENCES users(id),
-    token_hash  TEXT    NOT NULL UNIQUE,
-    expires_at  TEXT    NOT NULL,          -- 発行から15分程度
-    used_at     TEXT,                      -- 使用済みなら再利用不可
-    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+-- 認証は admin 発行の ID + パスワード。マジックリンクは採用しない。
+-- 理由: マジックリンクは SMTP が使えることが動作の前提になる。学内SMTPの可否が未確定な段階で
+--       ログイン手段をメールに依存させると、SMTP が使えない場合にシステム全体が起動できない。
+--       パスワード方式はメールに一切依存しないため、SMTP の可否によらず必ず動く。
+-- 「名前選択式では否認を排除できない」という当初の要件は、個人ごとの認証情報がある本方式でも満たされる。
+
+-- パスワード試行の記録。総当たりを鈍らせるために使う（成功したら削除する）
+CREATE TABLE login_attempts (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    login_id     TEXT    NOT NULL,   -- 存在しないIDへの試行も記録するため users を参照しない
+    attempted_at TEXT    NOT NULL DEFAULT (datetime('now'))
 );
-CREATE INDEX idx_login_tokens_user ON login_tokens(user_id);
+CREATE INDEX idx_login_attempts ON login_attempts(login_id, attempted_at);
 
 -- 長期セッション（1年）。これがあるため2回目以降はログイン操作が発生しない
 CREATE TABLE sessions (
