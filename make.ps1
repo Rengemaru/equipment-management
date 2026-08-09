@@ -13,7 +13,10 @@ param(
     [string]$Task = 'help'
 )
 
-$ErrorActionPreference = 'Stop'
+# $ErrorActionPreference = 'Stop' は設定しない。
+# docker compose は進捗を stderr に書く。呼び出し側が 2>&1 で受けると
+# PowerShell 5.1 はその1行ごとに ErrorRecord を作り、終了コード0でも失敗扱いになる。
+# 成否は最後の exit $LASTEXITCODE で伝える。
 
 # PowerShell 5.1 には && が無いため、コマンドは配列で組み立てて渡す
 $ComposeArgs = @('compose', '-f', 'compose.dev.yaml')
