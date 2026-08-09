@@ -261,6 +261,20 @@ npm run dev            # コンテナ内（web/ で）
 
 **コンテナ内は Linux なので、この制約は一切かからない。** スクリプトを書く場所を取り違えないこと。
 
+さらに、**PowerShell 5.1 はネイティブ実行ファイルへ渡す引数のクォートを壊す。**
+`docker compose exec dev bash -c '... echo "a b" ...'` のような引数は、コンテナに届く前に単語分割される。
+複数行・クォート入りのコマンドをコンテナで実行したいときは、**スクリプトをファイルに書いて渡す。**
+
+### コンテナ内でコマンドを実行するときは `bash -c` を使う
+
+`sh -lc` を使うと**ログインシェルが `/etc/profile` で PATH を上書きし、`go` が見つからなくなる。**
+Go は `/usr/local/go/bin` にあり、これは golang イメージが `ENV PATH` で足しているだけなので、profile 経由では復元されない。
+
+```
+docker compose -f compose.dev.yaml exec dev bash -c 'go test ./...'   # OK
+docker compose -f compose.dev.yaml exec dev sh -lc 'go test ./...'    # go: not found
+```
+
 ### ホットリロードを最初から入れない
 
 Go の変更反映は**コンテナの再起動で済ませる**（`make up` し直す）。
@@ -423,8 +437,8 @@ DTO を介して変換する。スキーマ変更が即 API の破壊になら�
 - [x] Git 初期化・`.gitignore` / `.gitattributes` 作成・GitHub 接続
 - [x] 認証方式の決定（ID + パスワード）と仕様書への反映
 - [x] 開発環境の決定（**Docker + VS Code Dev Containers。ローカルに Go / Node を入れない**）
-- [ ] `Dockerfile` の `dev` ステージ + `compose.dev.yaml` + `.devcontainer/devcontainer.json
-      （コンテナに入って `go version` / `node --version` が通る）
+- [x] `Dockerfile` の `dev` ステージ + `compose.dev.yaml` + `.devcontainer/devcontainer.json`
+      （Go 1.26.5 / Node 22.23.2 が動作。`/data` が ext4 ボリュームであることを確認済み）
 - [ ] `go mod init` + ディレクトリ骨格 + `cmd/server/main.go` が起動して `/healthz` を返す
 - [ ] `Makefile` と `make.ps1`（`docker compose` の薄いラッパ。同じタスク名で両方同時に更新する）
 - [ ] `.env.example`（`HOST_URL`, `DB_PATH`, `SESSION_SECRET`, `COOKIE_SECURE`, `UPLOAD_DIR`）

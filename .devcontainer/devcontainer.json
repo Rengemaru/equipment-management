@@ -1,0 +1,31 @@
+{
+  // VS Code で「Reopen in Container」すると、compose.dev.yaml の dev サービスに接続する。
+  // ローカルに Go / Node を入れずに開発するための設定。
+  "name": "equipment-management",
+  "dockerComposeFile": "../compose.dev.yaml",
+  "service": "dev",
+  "workspaceFolder": "/workspace",
+
+  // VS Code を閉じたらコンテナも止める。部室のマシンで動かしっぱなしにしない。
+  "shutdownAction": "stopCompose",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go",
+        "bradlc.vscode-tailwindcss",
+        "dbaeumer.vscode-eslint"
+      ],
+      "settings": {
+        // gofmt 準拠をエディタ側で担保する（コーディング規約）
+        "editor.formatOnSave": true,
+        "[go]": {
+          "editor.defaultFormatter": "golang.go"
+        }
+      }
+    }
+  },
+
+  // 8080 = API / 5173 = Vite
+  "forwardPorts": [8080, 5173]
+}

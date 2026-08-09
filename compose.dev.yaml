@@ -1,0 +1,57 @@
+# 開発用の Compose 定義。
+# 本番用は compose.yaml（M1の仕上げで作る）。混同しないこと。
+#
+# Compose v2 のため `version:` キーは書かない（廃止済み。書くと警告が出る）。
+
+name: equipment-management-dev
+
+services:
+  dev:
+    build:
+      context: .
+      target: dev
+
+    # VS Code の Dev Containers が接続している間、コンテナを生かしておくだけ。
+    # サーバはコンテナ内のターミナルから手で起動する。
+    # ここで go run を自動起動すると、コード修正のたびにコンテナごと落とすことになる。
+    command: sleep infinity
+
+    working_dir: /workspace
+
+    volumes:
+      # バインドマウントしてよいのはソースコードだけ。
+      - .:/workspace
+
+      # モジュールキャッシュ。名前付きにしないとコンテナを作り直すたびに全依存を再取得する。
+      - gomod:/go/pkg/mod
+      - gobuild:/root/.cache/go-build
+
+      # node_modules をホストとバインドすると、ホスト(Windows/macOS)とコンテナ(Linux)の
+      # OS差でネイティブモジュールが壊れる。必ず名前付きボリュームで上書きする。
+      - nodemodules:/workspace/web/node_modules
+
+      # SQLite と写真は名前付きボリューム。
+      # Docker Desktop のバインドマウントは WAL のファイルロック挙動がホストと異なり、
+      # `database is locked` や DB破損を起こす。開発機だけで壊れるため発見が遅れる。
+      - data:/data
+      - uploads:/uploads
+
+    ports:
+      - "8080:8080"   # API
+      - "5173:5173"   # Vite（コンテナ外から見るため --host 0.0.0.0 で起動すること）
+
+    # .env が無くても起動できるようにする（初回クローン直後に落ちないため）
+    env_file:
+      - path: .env
+        required: false
+
+    environment:
+      DB_PATH: /data/app.db
+      UPLOAD_DIR: /uploads
+
+volumes:
+  gomod:
+  gobuild:
+  nodemodules:
+  data:
+  uploads:
