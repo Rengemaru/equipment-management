@@ -1,0 +1,35 @@
+# === ビルド成果物 ===
+/bin/
+/dist/
+web/dist/
+*.exe
+*.exe~
+
+# === データ（絶対にコミットしない） ===
+# SQLite本体とWAL/SHM。個人情報と貸出履歴が入る
+/data/
+*.db
+*.db-wal
+*.db-shm
+
+# 備品写真のアップロード先
+/uploads/
+
+# === 秘密情報 ===
+.env
+.env.*
+!.env.example
+
+# === 依存 ===
+node_modules/
+
+# === エディタ / OS ===
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# === Go ===
+*.test
+*.out
+/vendor/

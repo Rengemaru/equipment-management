@@ -1,0 +1,18 @@
+# macOS と Windows の両方で作業するため、リポジトリ内は LF に統一する。
+# これを入れないと、環境を移るたびに全行が差分として出て履歴が読めなくなる。
+* text=auto eol=lf
+
+# バイナリ（改行変換をかけると壊れる）
+*.xlsx  binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.pdf   binary
+*.ttf   binary
+*.otf   binary
+*.ico   binary
+
+# Windows 専用スクリプトは CRLF のまま
+*.ps1   text eol=crlf
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
