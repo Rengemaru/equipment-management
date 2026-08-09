@@ -460,7 +460,9 @@ DTO を介して変換する。スキーマ変更が即 API の破壊になら�
       （`internal/` 配下は各パッケージを実装する時に作る。空ディレクトリを先に置かない）
 - [x] `Makefile` と `make.ps1`（`docker compose` の薄いラッパ。同じタスク名で両方同時に更新する）
 - [x] `.env.example`（`PORT`, `HOST_URL`, `DB_PATH`, `UPLOAD_DIR`, `SESSION_SECRET`, `COOKIE_SECURE`）
-- [ ] `README.md` 雛形（Docker Desktop + VS Code だけで動き出せる手順）
+- [x] `README.md` 雛形（Docker Desktop + VS Code だけで動き出せる手順）
+
+**M0 完了。** 次は M1 の先頭「マイグレーションランナー」から。
 
 **本番用の `compose.yaml` と Dockerfile のビルド/実行ステージは M1 の仕上げで作る。**
 中身が無い段階で書いても検証できず、動かないまま腐るため。
