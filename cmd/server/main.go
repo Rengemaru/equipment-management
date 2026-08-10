@@ -17,6 +17,7 @@ import (
 
 	"github.com/Rengemaru/equipment-management/internal/config"
 	"github.com/Rengemaru/equipment-management/internal/db"
+	"github.com/Rengemaru/equipment-management/internal/httpx"
 )
 
 func main() {
@@ -54,9 +55,13 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealthz(sqldb))
 
+	// /healthz は Compose のヘルスチェックが数秒ごとに叩く。
+	// 成功している間はログに出さない。出すと本当に見たい行が流れる。
+	handler := httpx.NewHandler(mux, log.Default(), "/healthz")
+
 	srv := &http.Server{
 		Addr:    addr,
-		Handler: mux,
+		Handler: handler,
 		// 部室のネットワークで接続が切れたまま残るのを防ぐ。
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
