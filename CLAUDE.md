@@ -188,6 +188,7 @@ cd web; npm run build; npm test; cd ..
 │   └── m1〜m4-implementation-spec.md
 ├── cmd/server/main.go
 ├── internal/
+│   ├── config/                # 環境変数の読み込みと検証
 │   ├── auth/                  # ID+パスワード認証・セッション
 │   ├── item/                  # 備品マスタ
 │   ├── loan/                  # 貸出（M2）
@@ -499,7 +500,8 @@ DTO を介して変換する。スキーマ変更が即 API の破壊になら�
       （PRAGMA は DSN で渡す。Exec すると1接続にしか効かず、プール内で挙動が混在する）
 
 **HTTP基盤**
-- [ ] 設定の読み込み（環境変数 → 構造体。必須値が無ければ起動時に落とす）
+- [x] 設定の読み込み（環境変数 → 構造体。必須値が無ければ起動時に落とす）
+      （不備は1つずつではなく全部まとめて報告する。`COOKIE_SECURE` の既定は `true`）
 - [ ] `httpx` ルーター骨格 + アクセスログ + panic recover
 
 **認証・権限**

@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Rengemaru/equipment-management/internal/config"
 	"github.com/Rengemaru/equipment-management/internal/db"
 )
 
@@ -22,20 +23,22 @@ func main() {
 	// ログは標準出力に出し、収集は Docker に任せる。
 	log.SetFlags(log.LstdFlags | log.LUTC)
 
-	addr := ":" + env("PORT", "8080")
-
-	// 環境変数の読み込みは、この後のコミットで設定パッケージに集約する。
-	// DB_PATH だけは既定値を置かない。書き込み先を取り違えると、
-	// データが入っていないDBを正常なものとして運用し始めることになる。
-	dbPath := env("DB_PATH", "")
-	if dbPath == "" {
-		log.Fatal("DB_PATH が未設定。書き込み先を推測しない")
+	// 設定の不備は起動時に全て出して落とす。
+	// 不完全な設定で起動させると、間違った場所に書き続けたまま運用が始まる。
+	cfg, warnings, err := config.Load(os.Getenv)
+	for _, w := range warnings {
+		log.Printf("warning: %s", w)
 	}
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	addr := ":" + cfg.Port
 
 	// 起動時に一度だけ接続する。失敗したら起動しない。
 	// 接続できないまま起動すると、リクエストが来て初めて気付くことになる。
 	ctx := context.Background()
-	sqldb, err := db.Open(ctx, dbPath)
+	sqldb, err := db.Open(ctx, cfg.DBPath)
 	if err != nil {
 		log.Fatalf("db: %v", err)
 	}
@@ -46,7 +49,7 @@ func main() {
 	if err := db.Migrate(ctx, sqldb, db.Migrations()); err != nil {
 		log.Fatalf("migrate: %v", err)
 	}
-	log.Printf("db ready: %s", dbPath)
+	log.Printf("db ready: %s", cfg.DBPath)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealthz(sqldb))
@@ -105,11 +108,4 @@ func handleHealthz(sqldb *sql.DB) http.HandlerFunc {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok\n"))
 	}
-}
-
-func env(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
 }
