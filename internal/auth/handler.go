@@ -10,12 +10,18 @@ import (
 
 // Handler は認証まわりの HTTP ハンドラ。
 type Handler struct {
-	store *Store
+	store    *Store
+	sessions *SessionStore
+
+	// cookieSecure は COOKIE_SECURE の値。
+	// Cookie を設定する箇所と消す箇所で必ず揃える必要があるため、
+	// 引数で持ち回さず Handler に持たせる。
+	cookieSecure bool
 }
 
 // NewHandler は Handler を作る。
-func NewHandler(store *Store) *Handler {
-	return &Handler{store: store}
+func NewHandler(store *Store, sessions *SessionStore, cookieSecure bool) *Handler {
+	return &Handler{store: store, sessions: sessions, cookieSecure: cookieSecure}
 }
 
 // Register は担当するルートを mux に登録する。
@@ -27,6 +33,10 @@ func NewHandler(store *Store) *Handler {
 // url-design.md により /api/v1/ に置くため、素の /api/ とは別の木にする。
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/login", h.handleLogin)
+	mux.HandleFunc("POST /api/logout", h.handleLogout)
+
+	// 自分自身の情報。フロントが起動時にログイン状態を復元するために使う。
+	mux.Handle("GET /api/me", h.RequireLogin(http.HandlerFunc(h.handleMe)))
 }
 
 // loginRequest はログインの入力。
@@ -80,6 +90,47 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 		// DBに触れない等。利用者には詳細を見せず、ログに残す。
 		log.Printf("login: %v", err)
+		httpx.WriteError(w, http.StatusInternalServerError, "サーバ側で問題が起きました")
+		return
+	}
+
+	token, expiresAt, err := h.sessions.Create(r.Context(), user.ID)
+	if err != nil {
+		log.Printf("login: %v", err)
+		httpx.WriteError(w, http.StatusInternalServerError, "サーバ側で問題が起きました")
+		return
+	}
+
+	setSessionCookie(w, token, expiresAt, h.cookieSecure)
+
+	httpx.JSON(w, http.StatusOK, loginResponse{User: newUserResponse(user)})
+}
+
+// handleLogout はセッションを消す。
+//
+// ログイン中でなくても 204 を返す。既にログアウトしているなら目的は達しており、
+// エラーにするとフロント側に「失敗したのか元々ログインしていないのか」の
+// 分岐を作らせることになる。
+func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if err := h.sessions.Delete(r.Context(), tokenFromRequest(r)); err != nil {
+		log.Printf("logout: %v", err)
+		httpx.WriteError(w, http.StatusInternalServerError, "サーバ側で問題が起きました")
+		return
+	}
+
+	// DB から消せてもブラウザに残っていると、次のリクエストで
+	// 無効なCookieを送り続けることになる。
+	clearSessionCookie(w, h.cookieSecure)
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleMe はログイン中の利用者を返す。RequireLogin を通っている前提。
+func (h *Handler) handleMe(w http.ResponseWriter, r *http.Request) {
+	user, ok := UserFrom(r.Context())
+	if !ok {
+		// ここに来るのは経路の組み立てを誤った時だけ。
+		log.Print("me: RequireLogin を通っていない")
 		httpx.WriteError(w, http.StatusInternalServerError, "サーバ側で問題が起きました")
 		return
 	}

@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// newTestHandler は admin 1人が登録済みの Handler を返す。
+// newTestHandler は利用者1人が登録済みの Handler を返す。
 func newTestHandler(t *testing.T) (*Handler, *Store) {
 	t.Helper()
 
@@ -18,22 +18,53 @@ func newTestHandler(t *testing.T) (*Handler, *Store) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	return NewHandler(store), store
+	sessions := NewSessionStore(store.sqldb, []byte("test-secret-32-bytes-............"))
+
+	// テストでは Secure を落とす。httptest は HTTP のため、
+	// 付けたままだと本物のブラウザと挙動が変わる。
+	return NewHandler(store, sessions, false), store
+}
+
+// serve は Handler が登録した経路にリクエストを流す。
+func serve(t *testing.T, h *Handler, req *http.Request) *httptest.ResponseRecorder {
+	t.Helper()
+
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	return w
 }
 
 // postLogin はログインAPIを叩く。
 func postLogin(t *testing.T, h *Handler, body string) *httptest.ResponseRecorder {
 	t.Helper()
 
-	mux := http.NewServeMux()
-	h.Register(mux)
-
 	req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
 
-	return w
+	return serve(t, h, req)
+}
+
+// loginAndGetCookie はログインしてセッションCookieを取り出す。
+func loginAndGetCookie(t *testing.T, h *Handler) *http.Cookie {
+	t.Helper()
+
+	w := postLogin(t, h, `{"login_id":"yamada","password":"password123"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("ログインに失敗: %d %s", w.Code, w.Body.String())
+	}
+
+	for _, c := range w.Result().Cookies() {
+		if c.Name == SessionCookieName {
+			return c
+		}
+	}
+
+	t.Fatal("セッションCookieが設定されていない")
+	return nil
 }
 
 func TestHandleLogin_正しい認証情報で200(t *testing.T) {
@@ -203,5 +234,154 @@ func TestAuthenticate_失敗を全てErrInvalidCredentialsに潰す(t *testing.T
 				t.Errorf("err = %v。ErrInvalidCredentials を期待", err)
 			}
 		})
+	}
+}
+
+// ---- セッション ----
+
+func TestHandleLogin_成功するとCookieが設定される(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	c := loginAndGetCookie(t, h)
+
+	if c.Value == "" {
+		t.Error("Cookie の値が空")
+	}
+	if !c.HttpOnly {
+		t.Error("HttpOnly が付いていない")
+	}
+}
+
+// 失敗した時に Cookie を配らないこと。
+func TestHandleLogin_失敗時はCookieを設定しない(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	w := postLogin(t, h, `{"login_id":"yamada","password":"wrongpassword"}`)
+
+	for _, c := range w.Result().Cookies() {
+		if c.Name == SessionCookieName && c.Value != "" {
+			t.Errorf("認証に失敗したのに Cookie が配られている: %q", c.Value)
+		}
+	}
+}
+
+func TestHandleMe_Cookieがあれば自分を返す(t *testing.T) {
+	h, _ := newTestHandler(t)
+	c := loginAndGetCookie(t, h)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	req.AddCookie(c)
+	w := serve(t, h, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	var got loginResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答が JSON でない: %v", err)
+	}
+	if got.User.LoginID != "yamada" {
+		t.Errorf("LoginID = %q", got.User.LoginID)
+	}
+}
+
+func TestHandleMe_Cookieが無ければ401(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	w := serve(t, h, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d。401 を期待", w.Code)
+	}
+	// HTML ではなく JSON を返すこと。フロントは fetch で受け取る。
+	if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "application/json") {
+		t.Errorf("Content-Type = %q", ct)
+	}
+}
+
+// 偽造した Cookie で入れないこと。
+func TestHandleMe_偽のCookieを拒否する(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "偽のトークン"})
+	w := serve(t, h, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d。401 を期待", w.Code)
+	}
+}
+
+// 無効なCookieは消させる。持ち続けると以後ずっと401になる。
+func TestRequireLogin_無効なCookieを消す(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "期限切れ相当"})
+	w := serve(t, h, req)
+
+	var cleared bool
+	for _, c := range w.Result().Cookies() {
+		if c.Name == SessionCookieName && c.MaxAge < 0 {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Error("無効な Cookie が消されていない")
+	}
+}
+
+func TestHandleLogout_セッションが無効になる(t *testing.T) {
+	h, _ := newTestHandler(t)
+	c := loginAndGetCookie(t, h)
+
+	logout := httptest.NewRequest(http.MethodPost, "/api/logout", nil)
+	logout.AddCookie(c)
+	w := serve(t, h, logout)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status = %d。204 を期待", w.Code)
+	}
+
+	// ログアウト後、同じ Cookie では入れないこと。
+	me := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	me.AddCookie(c)
+	if got := serve(t, h, me); got.Code != http.StatusUnauthorized {
+		t.Errorf("ログアウト後も入れる: status = %d", got.Code)
+	}
+}
+
+// ログインしていなくても 204。既にログアウトしているなら目的は達している。
+func TestHandleLogout_未ログインでも204(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	w := serve(t, h, httptest.NewRequest(http.MethodPost, "/api/logout", nil))
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("status = %d。204 を期待", w.Code)
+	}
+}
+
+// ログイン→ログアウト→再ログインが通ること。
+func TestSession_ログインし直せる(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	first := loginAndGetCookie(t, h)
+
+	logout := httptest.NewRequest(http.MethodPost, "/api/logout", nil)
+	logout.AddCookie(first)
+	serve(t, h, logout)
+
+	second := loginAndGetCookie(t, h)
+	if second.Value == first.Value {
+		t.Error("同じセッションIDが再利用されている")
+	}
+
+	me := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	me.AddCookie(second)
+	if w := serve(t, h, me); w.Code != http.StatusOK {
+		t.Errorf("再ログイン後に入れない: %d", w.Code)
 	}
 }

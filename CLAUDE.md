@@ -513,7 +513,9 @@ DTO を介して変換する。スキーマ変更が即 API の破壊になら�
 - [x] ログインAPI（成功/失敗を返す。**存在しないIDと誤パスワードでメッセージを変えない**）
       （`POST /api/login`。`Authenticate` が失敗を全て `ErrInvalidCredentials` に潰すため、
       ハンドラ側で理由による分岐を書けない。応答時間も揃える）
-- [ ] セッション発行・Cookie 設定・検証ミドルウェア（有効期限1年、`COOKIE_SECURE` 対応）
+- [x] セッション発行・Cookie 設定・検証ミドルウェア（有効期限1年、`COOKIE_SECURE` 対応）
+      （Cookie の値は `sessions.id` にそのまま入れない。`SESSION_SECRET` を混ぜて
+      ハッシュ化して保存する。バックアップDBが渡っても、なりすましに使えない）
 - [ ] `login_attempts` による総当たり対策（一定回数で遅延またはロック）
 - [ ] `next` による復帰 + オープンリダイレクト対策（**テスト必須**：`//evil.com` や絶対URLを弾く）
 - [ ] パスワード変更API + `must_change_password` の強制遷移
