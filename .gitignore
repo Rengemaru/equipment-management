@@ -4,6 +4,9 @@
 web/dist/
 *.exe
 *.exe~
+# コンテナ内で `go build` すると拡張子の無い Linux バイナリが
+# リポジトリ直下に落ちる。cmd/server/ は追跡対象なので先頭 / で限定する。
+/server
 
 # === データ（絶対にコミットしない） ===
 # SQLite本体とWAL/SHM。個人情報と貸出履歴が入る
