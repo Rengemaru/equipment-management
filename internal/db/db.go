@@ -3,10 +3,12 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 
-	_ "modernc.org/sqlite" // database/sql に "sqlite" ドライバを登録する
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 // 接続プールの上限。数十名規模なので大きくする理由がない。
@@ -68,4 +70,22 @@ func dsn(path string) string {
 	q.Add("_txlock", "immediate")
 
 	return "file:" + path + "?" + q.Encode()
+}
+
+// IsUniqueViolation は UNIQUE 制約違反かどうかを返す。
+//
+// 「そのログインIDは既にある」を 409 で返すために使う。
+// エラー文字列で判定すると、ドライバの版が上がった時に静かに壊れて
+// 500 を返すようになる。ここでコードを見て判定し、driver への依存を
+// このパッケージに閉じ込める。
+func IsUniqueViolation(err error) bool {
+	var serr *sqlite.Error
+	if !errors.As(err, &serr) {
+		return false
+	}
+
+	// PRIMARY KEY の衝突も UNIQUE 違反として扱う。呼ぶ側から見れば同じこと。
+	code := serr.Code()
+	return code == sqlite3.SQLITE_CONSTRAINT_UNIQUE ||
+		code == sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY
 }
