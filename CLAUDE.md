@@ -156,7 +156,8 @@ cd web; npm run build; npm test; cd ..
 | フロントエンド | React + TypeScript + Vite + React Router + Tailwind |
 | QR生成 | `github.com/skip2/go-qrcode` |
 | PDF生成 | `github.com/go-pdf/fpdf` |
-| パスワードハッシュ | `golang.org/x/crypto/bcrypt`（依存最小方針の唯一の例外） |
+| パスワードハッシュ | `golang.org/x/crypto/bcrypt`（標準ライブラリに無い。依存最小方針の例外） |
+| 文字コード変換 | `golang.org/x/text`（Shift_JIS のデコード。標準ライブラリに無い。**変換表を手書きする方が負債になる**ため例外） |
 | メール | 標準 `net/smtp`（**M2から**。M1は認証がメール非依存のため使わない） |
 | コンテナ | Docker（マルチステージ） |
 
@@ -166,6 +167,9 @@ cd web; npm run build; npm test; cd ..
 
 - 標準ライブラリで書けるものは標準ライブラリで書く
 - ライブラリを追加したくなったら、まず標準ライブラリで書けないか検討する
+- 例外は `golang.org/x/crypto`（bcrypt）と `golang.org/x/text`（Shift_JIS）の2つだけ。
+  どちらも標準ライブラリに無く、自前で書くと数百行の変換表や暗号実装を抱えることになる。
+  **Go 本体と同じ体制が保守しているモジュールに限る**（`golang.org/x/...`）
 - ORM を導入しない。`database/sql` と手書きSQLを使う
 
 ### 単一バイナリ構成
@@ -541,7 +545,8 @@ DTO を介して変換する。スキーマ変更が即 API の破壊になら�
       APIは `photo_url` を返す。送られたファイル名は使わない）
 
 **CSVインポート/エクスポート**
-- [ ] CSVパーサ（UTF-8 / Shift_JIS、BOM除去、**ヘッダ正規化**、空行スキップ）
+- [x] CSVパーサ（UTF-8 / Shift_JIS、BOM除去、**ヘッダ正規化**、空行スキップ）
+      （テンプレート実物のヘッダは `品名　*`。数量列は**その数だけレコードに展開する**）
 - [ ] インポートのプレビューAPI（何行が何レコードに展開されるか。エラーは行番号付きで全件返す）
 - [ ] インポートの確定API（**トランザクション。全件成功か全件失敗か**）
 - [ ] 全備品のCSVエクスポートAPI（**システムが死んでもデータが残るための保険**）
