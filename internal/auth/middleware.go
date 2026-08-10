@@ -53,6 +53,29 @@ func (h *Handler) RequireLogin(next http.Handler) http.Handler {
 			return
 		}
 
+		// 初期パスワードのままの利用者を、変更するまで他のAPIに通さない。
+		//
+		// フロントの画面遷移だけで縛ると、APIを直接叩けば素通りできる。
+		// 「UIでボタンを隠すだけにしない」（CLAUDE.md）と同じ理由で、ここで止める。
+		if user.MustChangePassword && !passwordChangeExempt[r.URL.Path] {
+			httpx.WriteErrorCode(w, http.StatusForbidden, CodePasswordChangeRequired,
+				"初期パスワードのままです。パスワードを変更してください")
+			return
+		}
+
 		next.ServeHTTP(w, withUser(r, user))
 	})
+}
+
+// passwordChangeExempt は初期パスワードのままでも通してよい経路。
+//
+// 変更に必要な最小限だけを挙げる。ここに足す時は、初期パスワードを
+// 知っているだけの人に触らせてよいかを考えること。
+var passwordChangeExempt = map[string]bool{
+	// 変更そのもの。
+	"/api/password": true,
+	// 自分が誰かの確認。フロントが変更画面を描くのに要る。
+	"/api/me": true,
+	// 変更せずに離脱する手段は常に残す。
+	"/api/logout": true,
 }

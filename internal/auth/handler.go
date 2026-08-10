@@ -43,6 +43,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 
 	// 自分自身の情報。フロントが起動時にログイン状態を復元するために使う。
 	mux.Handle("GET /api/me", h.RequireLogin(http.HandlerFunc(h.handleMe)))
+
+	mux.Handle("POST /api/password", h.RequireLogin(http.HandlerFunc(h.handlePasswordChange)))
 }
 
 // loginRequest はログインの入力。

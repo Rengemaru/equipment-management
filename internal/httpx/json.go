@@ -19,7 +19,12 @@ const maxJSONBytes = 1 << 20 // 1MB
 // 形を1つに決めておく。ハンドラごとに違う形を返すと、
 // フロント側がエンドポイントの数だけ分岐を持つことになる。
 type ErrorResponse struct {
+	// Error は利用者に見せる文言。
 	Error string `json:"error"`
+
+	// Code はフロントが分岐に使う識別子。文言で分岐させると、
+	// 日本語を直した瞬間に分岐が壊れる。必要な時だけ入れる。
+	Code string `json:"code,omitempty"`
 }
 
 // JSON は v を JSON で書く。
@@ -44,6 +49,13 @@ func JSON(w http.ResponseWriter, status int, v any) {
 // SQL文やファイルパスが画面に出る。
 func WriteError(w http.ResponseWriter, status int, message string) {
 	JSON(w, status, ErrorResponse{Error: message})
+}
+
+// WriteErrorCode は分岐用の識別子を添えてエラーを返す。
+//
+// フロントが「この場合だけ別の画面へ送る」といった扱いをする時に使う。
+func WriteErrorCode(w http.ResponseWriter, status int, code, message string) {
+	JSON(w, status, ErrorResponse{Error: message, Code: code})
 }
 
 // DecodeJSON はリクエスト本文を dst に読み込む。
