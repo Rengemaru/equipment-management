@@ -78,6 +78,10 @@ cd web; npm run build; npm test; cd ..
 
 **通らないならコミットしない。** 「後で直す」は必ず忘れられる。
 
+同じ検査は push のたびに CI（`.github/workflows/ci.yml`）でも走る。
+**CI は最後の網であって、手元で確認しない口実にしない。** 落ちてから直すと、
+壊れたコミットが履歴に残る。
+
 ### コミットメッセージ
 
 ```
@@ -473,6 +477,11 @@ DTO を介して変換する。スキーマ変更が即 API の破壊になら�
 - [x] `README.md` 雛形（Docker Desktop + VS Code だけで動き出せる手順）
 
 **M0 完了。** 次は M1 の先頭「マイグレーションランナー」から。
+
+### 共通基盤（マイルストーンに属さない）
+
+- [x] GitHub Actions で CI（`.github/workflows/ci.yml`。push ごとに build / gofmt / `go vet` /
+      `go test -race`、および `.ps1` の BOM を検査する）
 
 **本番用の `compose.yaml` と Dockerfile のビルド/実行ステージは M1 の仕上げで作る。**
 中身が無い段階で書いても検証できず、動かないまま腐るため。
