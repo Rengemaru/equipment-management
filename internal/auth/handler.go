@@ -49,6 +49,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 type loginRequest struct {
 	LoginID  string `json:"login_id"`
 	Password string `json:"password"`
+
+	// Next は認証後に戻る先。/login?next=/i/0042 の値をそのまま渡す。
+	// 検証はサーバ側で行い、安全な値を redirect_to として返す。
+	Next string `json:"next"`
 }
 
 // userResponse は利用者を返す形。
@@ -76,6 +80,14 @@ func newUserResponse(u *User) userResponse {
 // loginResponse はログイン成功時の応答。
 type loginResponse struct {
 	User userResponse `json:"user"`
+
+	// RedirectTo は認証後に進む先。検証済みで、必ず自サイト内のパスになる。
+	//
+	// フロント側で next を解釈させず、ここで返した値へ進ませる。
+	// 判断を1箇所に集めておかないと、画面が増えるたびに検証の抜けが生まれる。
+	// omitempty を付けない。値が無い時に「前の画面に留まる」といった
+	// 独自の解釈をさせず、常に行き先を示す。
+	RedirectTo string `json:"redirect_to"`
 }
 
 func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -130,8 +142,22 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	setSessionCookie(w, token, expiresAt, h.cookieSecure)
 
-	httpx.JSON(w, http.StatusOK, loginResponse{User: newUserResponse(user)})
+	// 初期パスワードのままなら、どこへ戻る予定でもパスワード変更へ送る。
+	// ここで通すと、変更しないまま使い続けられる。
+	redirectTo := httpx.SafeRedirectPath(req.Next)
+	if user.MustChangePassword {
+		redirectTo = passwordChangePath
+	}
+
+	httpx.JSON(w, http.StatusOK, loginResponse{
+		User:       newUserResponse(user),
+		RedirectTo: redirectTo,
+	})
 }
+
+// passwordChangePath は初期パスワードのままの利用者を送る先。
+// url-design.md の画面一覧に合わせる。
+const passwordChangePath = "/password"
 
 // handleLogout はセッションを消す。
 //
@@ -162,5 +188,10 @@ func (h *Handler) handleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httpx.JSON(w, http.StatusOK, loginResponse{User: newUserResponse(user)})
+	httpx.JSON(w, http.StatusOK, loginResponse{
+		User: newUserResponse(user),
+		// 既にログイン済みの利用者に行き先を指示する理由はない。
+		// 画面はフロントの経路がそのまま担う。
+		RedirectTo: httpx.DefaultRedirect,
+	})
 }

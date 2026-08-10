@@ -385,3 +385,105 @@ func TestSession_ログインし直せる(t *testing.T) {
 		t.Errorf("再ログイン後に入れない: %d", w.Code)
 	}
 }
+
+// ---- next による復帰 ----
+
+// QRから来た人が、認証後に元の備品ページへ戻れること。
+// 戻せないと、もう一度QRを読み直させることになり、記録漏れの直接原因になる。
+func TestHandleLogin_nextで元のページに戻す(t *testing.T) {
+	h, store := newTestHandler(t)
+
+	// 初期パスワードのままだとパスワード変更へ送られるため、外しておく。
+	if _, err := store.sqldb.Exec(`UPDATE users SET must_change_password = 0`); err != nil {
+		t.Fatalf("must_change_password の解除: %v", err)
+	}
+
+	w := postLogin(t, h, `{"login_id":"yamada","password":"password123","next":"/i/0042"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	var got loginResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答が JSON でない: %v", err)
+	}
+	if got.RedirectTo != "/i/0042" {
+		t.Errorf("redirect_to = %q。/i/0042 を期待", got.RedirectTo)
+	}
+}
+
+// 細工した next で外部サイトへ飛ばせないこと。
+func TestHandleLogin_外部へのnextを弾く(t *testing.T) {
+	dangerous := []string{
+		"//evil.com",
+		"https://evil.com/login",
+		`/\evil.com`,
+		"javascript:alert(1)",
+	}
+
+	for _, next := range dangerous {
+		t.Run(next, func(t *testing.T) {
+			h, store := newTestHandler(t)
+			if _, err := store.sqldb.Exec(`UPDATE users SET must_change_password = 0`); err != nil {
+				t.Fatalf("must_change_password の解除: %v", err)
+			}
+
+			body, err := json.Marshal(loginRequest{
+				LoginID: "yamada", Password: "password123", Next: next,
+			})
+			if err != nil {
+				t.Fatalf("json.Marshal: %v", err)
+			}
+
+			w := postLogin(t, h, string(body))
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+			}
+
+			var got loginResponse
+			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+				t.Fatalf("応答が JSON でない: %v", err)
+			}
+			if got.RedirectTo != "/" {
+				t.Errorf("redirect_to = %q。/ に落とすべき", got.RedirectTo)
+			}
+		})
+	}
+}
+
+// 初期パスワードのままなら、next より変更画面を優先すること。
+// ここで通すと、変更しないまま使い続けられる。
+func TestHandleLogin_初期パスワードならnextより変更画面を優先する(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	w := postLogin(t, h, `{"login_id":"yamada","password":"password123","next":"/i/0042"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	var got loginResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答が JSON でない: %v", err)
+	}
+	if got.RedirectTo != "/password" {
+		t.Errorf("redirect_to = %q。/password を期待", got.RedirectTo)
+	}
+}
+
+// next が無くても必ず行き先を返すこと。
+func TestHandleLogin_nextが無ければトップを返す(t *testing.T) {
+	h, store := newTestHandler(t)
+	if _, err := store.sqldb.Exec(`UPDATE users SET must_change_password = 0`); err != nil {
+		t.Fatalf("must_change_password の解除: %v", err)
+	}
+
+	w := postLogin(t, h, `{"login_id":"yamada","password":"password123"}`)
+
+	var got loginResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答が JSON でない: %v", err)
+	}
+	if got.RedirectTo != "/" {
+		t.Errorf("redirect_to = %q。/ を期待", got.RedirectTo)
+	}
+}
