@@ -1,29 +1,13 @@
--- サークル備品管理システム / SQLite スキーマ
--- 対象: SQLite 3.35+
+-- M1: 認証とユーザー、備品マスタ。
 --
--- これは「現在DBに適用されている状態」の参照用スナップショット。
--- 実際に適用されるのは internal/db/migrations/ の連番SQL。両方を必ず同時に更新する。
+-- loans 以降は各マイルストーンで 0002, 0003... として足す。
+-- 使わないテーブルを先に作らないのは、DBを覗いた人が「実装済みだが使われていない」のか
+-- 「未実装」のかを区別できるようにするため。設計の全体像は
+-- docs/equipment-management-requirements.md §5 にある。
 --
--- 現在地: M1（0001_init.sql まで適用）
---
--- loans / missing_reports / damage_reports / notification_log /
--- inventory_checks / inventory_check_items / api_tokens、および
--- 一覧用のビューは、それぞれ M2・M3・M4 で追加する。ここにはまだ無い。
--- 完成形の設計は docs/equipment-management-requirements.md §5 データモデル にある。
-
-PRAGMA foreign_keys = ON;
-PRAGMA journal_mode = WAL;
-
--- ============================================================
--- マイグレーション履歴（ランナーが自動で作る）
--- ============================================================
-
--- internal/db の Migrate が起動時に作成・更新する。連番SQL側では作らない。
-CREATE TABLE schema_migrations (
-    version    INTEGER PRIMARY KEY,
-    name       TEXT NOT NULL,
-    applied_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
+-- PRAGMA はここに書かない。foreign_keys / journal_mode は接続ごとの設定であり、
+-- journal_mode = WAL はトランザクション内では変更できない（ランナーは1ファイルを
+-- 1トランザクションで実行する）。接続時に設定する。
 
 -- ============================================================
 -- ユーザー / 認証
@@ -50,12 +34,6 @@ CREATE TABLE users (
     created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
 );
-
--- 認証は admin 発行の ID + パスワード。マジックリンクは採用しない。
--- 理由: マジックリンクは SMTP が使えることが動作の前提になる。学内SMTPの可否が未確定な段階で
---       ログイン手段をメールに依存させると、SMTP が使えない場合にシステム全体が起動できない。
---       パスワード方式はメールに一切依存しないため、SMTP の可否によらず必ず動く。
--- 「名前選択式では否認を排除できない」という当初の要件は、個人ごとの認証情報がある本方式でも満たされる。
 
 -- パスワード試行の記録。総当たりを鈍らせるために使う（成功したら削除する）
 CREATE TABLE login_attempts (

@@ -377,6 +377,16 @@ docker compose cp app:/data/backup.db ./backup.db
 `internal/db/migrations/` に連番SQLを追加する。既存ファイルを書き換えない。
 変更したら `schema.sql` と該当する仕様書も更新すること。
 
+**テーブルはそのマイルストーンで使う分だけ作る。** `0001_init.sql` は M1 の4テーブルのみで、
+`loans` 以降は M2・M3・M4 で `0002`, `0003`... として足す。
+空のテーブルが先に存在すると、DBを覗いた人が「実装済みだが使われていない」のか「未実装」のかを
+区別できなくなる。加えて M3 以降の仕様は M1・M2 の運用後に見直す前提のため、
+先に DDL を固定すると、見直し時に SQLite の非力な `ALTER TABLE`（列削除や CHECK 変更ができない）で
+辻褄を合わせることになる。
+
+完成形の設計は `docs/equipment-management-requirements.md §5` にある。
+`docs/schema.sql` は**今DBに入っている状態**だけを写す。
+
 ### バックアップ
 
 WALモードで動くため、単純なファイルコピーは危険。`.backup` コマンドか、書き込み停止中のコピーを使う。
@@ -475,7 +485,7 @@ DTO を介して変換する。スキーマ変更が即 API の破壊になら�
 **DB基盤**
 - [x] マイグレーションランナー（`embed` + 連番SQL、適用済みバージョンを記録）
       （`db.Migrate(ctx, sqldb, fs.FS)`。`embed.FS` の宣言は `0001_init.sql` と同じコミットで足す）
-- [ ] `0001_init.sql`（`docs/schema.sql` 相当）
+- [x] `0001_init.sql`（`users` / `login_attempts` / `sessions` / `items`。**先のマイルストーンのテーブルは作らない**）
 - [ ] DB接続（`modernc.org/sqlite`、WAL、`foreign_keys = ON`）
 
 **HTTP基盤**
