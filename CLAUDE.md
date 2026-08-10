@@ -473,7 +473,8 @@ DTO を介して変換する。スキーマ変更が即 API の破壊になら�
 `docs/m1-implementation-spec.md` が仕様。**バックエンドを先に完成させる。** 各APIが `go test` で検証できる状態にしてから画面を作る。
 
 **DB基盤**
-- [ ] マイグレーションランナー（`embed` + 連番SQL、適用済みバージョンを記録）
+- [x] マイグレーションランナー（`embed` + 連番SQL、適用済みバージョンを記録）
+      （`db.Migrate(ctx, sqldb, fs.FS)`。`embed.FS` の宣言は `0001_init.sql` と同じコミットで足す）
 - [ ] `0001_init.sql`（`docs/schema.sql` 相当）
 - [ ] DB接続（`modernc.org/sqlite`、WAL、`foreign_keys = ON`）
 
