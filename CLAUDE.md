@@ -486,7 +486,8 @@ DTO を介して変換する。スキーマ変更が即 API の破壊になら�
 - [x] マイグレーションランナー（`embed` + 連番SQL、適用済みバージョンを記録）
       （`db.Migrate(ctx, sqldb, fs.FS)`。`embed.FS` の宣言は `0001_init.sql` と同じコミットで足す）
 - [x] `0001_init.sql`（`users` / `login_attempts` / `sessions` / `items`。**先のマイルストーンのテーブルは作らない**）
-- [ ] DB接続（`modernc.org/sqlite`、WAL、`foreign_keys = ON`）
+- [x] DB接続（`modernc.org/sqlite`、WAL、`foreign_keys = ON`）
+      （PRAGMA は DSN で渡す。Exec すると1接続にしか効かず、プール内で挙動が混在する）
 
 **HTTP基盤**
 - [ ] 設定の読み込み（環境変数 → 構造体。必須値が無ければ起動時に落とす）

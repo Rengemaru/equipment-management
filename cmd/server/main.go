@@ -1,11 +1,12 @@
 // Command server は備品管理システムの HTTP サーバを起動する。
 //
-// M0 時点では /healthz のみ。Compose のヘルスチェックがこれに依存するため、
-// 中身のある機能より先に用意している。
+// 現時点では DB への接続とマイグレーション、/healthz のみ。
+// Compose のヘルスチェックが /healthz に依存する。
 package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"log"
 	"net/http"
@@ -13,6 +14,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/Rengemaru/equipment-management/internal/db"
 )
 
 func main() {
@@ -21,8 +24,32 @@ func main() {
 
 	addr := ":" + env("PORT", "8080")
 
+	// 環境変数の読み込みは、この後のコミットで設定パッケージに集約する。
+	// DB_PATH だけは既定値を置かない。書き込み先を取り違えると、
+	// データが入っていないDBを正常なものとして運用し始めることになる。
+	dbPath := env("DB_PATH", "")
+	if dbPath == "" {
+		log.Fatal("DB_PATH が未設定。書き込み先を推測しない")
+	}
+
+	// 起動時に一度だけ接続する。失敗したら起動しない。
+	// 接続できないまま起動すると、リクエストが来て初めて気付くことになる。
+	ctx := context.Background()
+	sqldb, err := db.Open(ctx, dbPath)
+	if err != nil {
+		log.Fatalf("db: %v", err)
+	}
+	defer func() { _ = sqldb.Close() }()
+
+	// マイグレーションは起動のたびに適用する。適用済みの分は飛ばされる。
+	// デプロイ手順に「マイグレーションを流す」という人手の操作を作らないため。
+	if err := db.Migrate(ctx, sqldb, db.Migrations()); err != nil {
+		log.Fatalf("migrate: %v", err)
+	}
+	log.Printf("db ready: %s", dbPath)
+
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", handleHealthz)
+	mux.HandleFunc("GET /healthz", handleHealthz(sqldb))
 
 	srv := &http.Server{
 		Addr:    addr,
@@ -56,12 +83,28 @@ func main() {
 	log.Print("stopped")
 }
 
-// handleHealthz はプロセスが生きていることだけを返す。
-// DB 疎通の確認は、DB を導入する M1 で足す。
-func handleHealthz(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("ok\n"))
+// handleHealthz はプロセスが生きていて、DBに触れることを返す。
+//
+// プロセスの生存だけを見ると、DBのボリュームが外れた状態を healthy と報告する。
+// Compose がこれを見て再起動しないため、壊れたまま動き続けることになる。
+func handleHealthz(sqldb *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+
+		// ヘルスチェック自体が詰まると、応答がないのか遅いのか区別できない。
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+
+		if err := sqldb.PingContext(ctx); err != nil {
+			log.Printf("healthz: db: %v", err)
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("db unavailable\n"))
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok\n"))
+	}
 }
 
 func env(key, fallback string) string {
