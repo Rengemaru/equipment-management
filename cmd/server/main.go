@@ -1,13 +1,20 @@
 // Command server は備品管理システムの HTTP サーバを起動する。
 //
-// 現時点では DB への接続とマイグレーション、/healthz のみ。
-// Compose のヘルスチェックが /healthz に依存する。
+// サブコマンド:
+//
+//	-create-admin   最初の admin を作る（Webからは作れない）
+//
+// デプロイは「バイナリ1つ + SQLiteファイル1つ」で完結させる方針のため、
+// 運用に必要な操作もこのバイナリのサブコマンドとして持たせる。
+// 本番イメージにはシェルも sqlite3 も入れない。
 package main
 
 import (
 	"context"
 	"database/sql"
 	"errors"
+	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -24,8 +31,19 @@ func main() {
 	// ログは標準出力に出し、収集は Docker に任せる。
 	log.SetFlags(log.LstdFlags | log.LUTC)
 
+	var (
+		doCreateAdmin = flag.Bool("create-admin", false, "admin ユーザーを作って終了する")
+		loginID       = flag.String("login-id", "", "-create-admin で作るユーザーのログインID")
+		name          = flag.String("name", "", "-create-admin で作るユーザーの表示名")
+		email         = flag.String("email", "", "-create-admin で作るユーザーのメールアドレス（省略可）")
+	)
+	flag.Parse()
+
 	// 設定の不備は起動時に全て出して落とす。
 	// 不完全な設定で起動させると、間違った場所に書き続けたまま運用が始まる。
+	//
+	// サブコマンドでも同じ設定を要求する。DB_PATH だけ読む作りにすると、
+	// 「create-admin は通るのにサーバが起動しない」状態を作れてしまう。
 	cfg, warnings, err := config.Load(os.Getenv)
 	for _, w := range warnings {
 		log.Printf("warning: %s", w)
@@ -34,11 +52,10 @@ func main() {
 		log.Fatal(err)
 	}
 
-	addr := ":" + cfg.Port
+	ctx := context.Background()
 
 	// 起動時に一度だけ接続する。失敗したら起動しない。
 	// 接続できないまま起動すると、リクエストが来て初めて気付くことになる。
-	ctx := context.Background()
 	sqldb, err := db.Open(ctx, cfg.DBPath)
 	if err != nil {
 		log.Fatalf("db: %v", err)
@@ -47,10 +64,30 @@ func main() {
 
 	// マイグレーションは起動のたびに適用する。適用済みの分は飛ばされる。
 	// デプロイ手順に「マイグレーションを流す」という人手の操作を作らないため。
+	//
+	// -create-admin でも先に適用する。空のDBに対して最初に実行されるのは
+	// こちらなので、ここで適用しないと必ず失敗する。
 	if err := db.Migrate(ctx, sqldb, db.Migrations()); err != nil {
 		log.Fatalf("migrate: %v", err)
 	}
+
+	if *doCreateAdmin {
+		in := createAdminInput{LoginID: *loginID, Name: *name, Email: *email}
+		if err := runCreateAdmin(ctx, sqldb, in, os.Stdout); err != nil {
+			log.Fatalf("create-admin: %v", err)
+		}
+		return
+	}
+
 	log.Printf("db ready: %s", cfg.DBPath)
+	if err := runServer(ctx, cfg, sqldb); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// runServer は HTTP サーバを起動し、終了信号を受けるまで動かす。
+func runServer(ctx context.Context, cfg *config.Config, sqldb *sql.DB) error {
+	addr := ":" + cfg.Port
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealthz(sqldb))
@@ -83,12 +120,14 @@ func main() {
 	<-shutdown
 	log.Print("shutting down")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	stopCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatalf("shutdown: %v", err)
+	if err := srv.Shutdown(stopCtx); err != nil {
+		return fmt.Errorf("shutdown: %w", err)
 	}
+
 	log.Print("stopped")
+	return nil
 }
 
 // handleHealthz はプロセスが生きていて、DBに触れることを返す。
