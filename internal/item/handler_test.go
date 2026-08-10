@@ -16,7 +16,11 @@ func newTestHandler(t *testing.T) (*Handler, *Store) {
 	t.Helper()
 
 	s := newTestStore(t)
-	return NewHandler(s, passthrough, passthrough), s
+	photos, err := NewPhotoStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewPhotoStore: %v", err)
+	}
+	return NewHandler(s, photos, passthrough, passthrough), s
 }
 
 // get は経路にリクエストを流す。

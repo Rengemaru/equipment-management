@@ -217,3 +217,30 @@ func boolToInt(b bool) int {
 	}
 	return 0
 }
+
+// SetPhoto は写真のファイル名を差し替える。空文字で外す。
+//
+// ファイルの削除は呼び出し側で行う。DBの更新とファイル操作を1つの関数に
+// 入れると、どちらかだけ成功した時の後始末が中で閉じてしまい、
+// 呼び出し側から何が起きたか分からなくなる。
+func (s *Store) SetPhoto(ctx context.Context, code, filename string) (*Item, error) {
+	const q = `
+UPDATE items
+SET photo_path = ?, updated_at = datetime('now')
+WHERE code = ?`
+
+	res, err := s.sqldb.ExecContext(ctx, q, nullable(filename), strings.TrimSpace(code))
+	if err != nil {
+		return nil, fmt.Errorf("写真の更新: %w", err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("写真の更新: %w", err)
+	}
+	if n == 0 {
+		return nil, ErrNotFound
+	}
+
+	return s.ByCode(ctx, code)
+}

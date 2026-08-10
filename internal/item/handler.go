@@ -26,11 +26,19 @@ type Handler struct {
 	// member が備品マスタを書き換えられないことが、スプレッドシート共有ではなく
 	// システム化する主目的（m1-spec §5）。UIで隠すだけにせず必ず通す。
 	requireAdmin Middleware
+
+	// photos は写真の保存先。
+	photos *PhotoStore
 }
 
 // NewHandler は Handler を作る。
-func NewHandler(store *Store, requireLogin, requireAdmin Middleware) *Handler {
-	return &Handler{store: store, requireLogin: requireLogin, requireAdmin: requireAdmin}
+func NewHandler(store *Store, photos *PhotoStore, requireLogin, requireAdmin Middleware) *Handler {
+	return &Handler{
+		store:        store,
+		photos:       photos,
+		requireLogin: requireLogin,
+		requireAdmin: requireAdmin,
+	}
 }
 
 // Register は担当するルートを mux に登録する。
@@ -43,6 +51,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/items/{code}", h.requireLogin(http.HandlerFunc(h.handleDetail)))
 
 	h.registerWriteRoutes(mux)
+	h.registerPhotoRoutes(mux)
 }
 
 // itemResponse は備品を返す形。
@@ -59,9 +68,13 @@ type itemResponse struct {
 	Location       string         `json:"location"`
 	Condition      Condition      `json:"condition"`
 	LocationStatus LocationStatus `json:"location_status"`
-	PhotoPath      string         `json:"photo_path"`
-	Note           string         `json:"note"`
-	UpdatedAt      string         `json:"updated_at"`
+	// PhotoURL は写真の取得先。無ければ空文字。
+	//
+	// ファイル名（photo_path）をそのまま返さない。保存先の構成が変わるたびに
+	// フロント側のURL組み立てを直すことになる。
+	PhotoURL  string `json:"photo_url"`
+	Note      string `json:"note"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 func newItemResponse(it *Item) itemResponse {
@@ -76,7 +89,7 @@ func newItemResponse(it *Item) itemResponse {
 		Location:       it.Location,
 		Condition:      it.Condition,
 		LocationStatus: it.LocationStatus,
-		PhotoPath:      it.PhotoPath,
+		PhotoURL:       photoURL(it),
 		Note:           it.Note,
 		UpdatedAt:      it.UpdatedAt,
 	}
@@ -161,6 +174,14 @@ func (h *Handler) handleFilters(w http.ResponseWriter, r *http.Request) {
 		"categories": orEmpty(categories),
 		"locations":  orEmpty(locations),
 	})
+}
+
+// photoURL は写真の取得先を返す。
+func photoURL(it *Item) string {
+	if it.PhotoPath == "" {
+		return ""
+	}
+	return "/api/items/" + it.Code + "/photo"
 }
 
 func orEmpty(v []string) []string {
