@@ -26,6 +26,7 @@ import (
 	"github.com/Rengemaru/equipment-management/internal/config"
 	"github.com/Rengemaru/equipment-management/internal/db"
 	"github.com/Rengemaru/equipment-management/internal/httpx"
+	"github.com/Rengemaru/equipment-management/internal/item"
 )
 
 func main() {
@@ -96,7 +97,12 @@ func runServer(ctx context.Context, cfg *config.Config, sqldb *sql.DB) error {
 	// 経路の登録は各パッケージに任せる。main が全ルートを知っていると、
 	// ハンドラを足すたびに main が育ち、どこに何があるか追えなくなる。
 	sessions := auth.NewSessionStore(sqldb, cfg.SessionSecret)
-	auth.NewHandler(auth.NewStore(sqldb), sessions, auth.NewThrottle(sqldb), cfg.CookieSecure).Register(mux)
+	authHandler := auth.NewHandler(auth.NewStore(sqldb), sessions, auth.NewThrottle(sqldb), cfg.CookieSecure)
+	authHandler.Register(mux)
+
+	// 備品の読み取りは member も可。誰が何を持っているかが全員に見える状態を
+	// 作ることが、罰則より強く働く（CLAUDE.md）。
+	item.NewHandler(item.NewStore(sqldb), authHandler.RequireLogin).Register(mux)
 
 	// /healthz は Compose のヘルスチェックが数秒ごとに叩く。
 	// 成功している間はログに出さない。出すと本当に見たい行が流れる。
