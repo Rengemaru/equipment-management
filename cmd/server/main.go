@@ -96,7 +96,7 @@ func runServer(ctx context.Context, cfg *config.Config, sqldb *sql.DB) error {
 	// 経路の登録は各パッケージに任せる。main が全ルートを知っていると、
 	// ハンドラを足すたびに main が育ち、どこに何があるか追えなくなる。
 	sessions := auth.NewSessionStore(sqldb, cfg.SessionSecret)
-	auth.NewHandler(auth.NewStore(sqldb), sessions, cfg.CookieSecure).Register(mux)
+	auth.NewHandler(auth.NewStore(sqldb), sessions, auth.NewThrottle(sqldb), cfg.CookieSecure).Register(mux)
 
 	// /healthz は Compose のヘルスチェックが数秒ごとに叩く。
 	// 成功している間はログに出さない。出すと本当に見たい行が流れる。

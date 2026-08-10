@@ -22,7 +22,7 @@ func newTestHandler(t *testing.T) (*Handler, *Store) {
 
 	// テストでは Secure を落とす。httptest は HTTP のため、
 	// 付けたままだと本物のブラウザと挙動が変わる。
-	return NewHandler(store, sessions, false), store
+	return NewHandler(store, sessions, NewThrottle(store.sqldb), false), store
 }
 
 // serve は Handler が登録した経路にリクエストを流す。

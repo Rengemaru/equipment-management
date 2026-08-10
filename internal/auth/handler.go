@@ -12,6 +12,7 @@ import (
 type Handler struct {
 	store    *Store
 	sessions *SessionStore
+	throttle *Throttle
 
 	// cookieSecure は COOKIE_SECURE の値。
 	// Cookie を設定する箇所と消す箇所で必ず揃える必要があるため、
@@ -20,8 +21,13 @@ type Handler struct {
 }
 
 // NewHandler は Handler を作る。
-func NewHandler(store *Store, sessions *SessionStore, cookieSecure bool) *Handler {
-	return &Handler{store: store, sessions: sessions, cookieSecure: cookieSecure}
+func NewHandler(store *Store, sessions *SessionStore, throttle *Throttle, cookieSecure bool) *Handler {
+	return &Handler{
+		store:        store,
+		sessions:     sessions,
+		throttle:     throttle,
+		cookieSecure: cookieSecure,
+	}
 }
 
 // Register は担当するルートを mux に登録する。
@@ -79,11 +85,27 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 直近の失敗回数に応じて待たせる。ロックはしない。
+	// 締め出された人はその場で借用を記録できなくなり、記録漏れに直結する。
+	//
+	// 数えられなくても認証は続ける。総当たり対策が効かないことより、
+	// ログインできないことの方が実害が大きい。
+	failures, err := h.throttle.RecentFailures(r.Context(), req.LoginID)
+	if err != nil {
+		log.Printf("login: %v", err)
+	}
+	h.throttle.Wait(r.Context(), failures)
+
 	user, err := h.store.Authenticate(r.Context(), req.LoginID, req.Password)
 	if err != nil {
 		if errors.Is(err, ErrInvalidCredentials) {
+			if err := h.throttle.RecordFailure(r.Context(), req.LoginID); err != nil {
+				log.Printf("login: %v", err)
+			}
+
 			// 401 と文言はここ1箇所だけ。理由ごとに分岐を作ると、
 			// いつか片方だけ文言が変わって、存在するIDが分かるようになる。
+			// 待たされていることも伝えない。何回で待たされるかが分かる。
 			httpx.WriteError(w, http.StatusUnauthorized, "ログインIDまたはパスワードが違います")
 			return
 		}
@@ -92,6 +114,11 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		log.Printf("login: %v", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "サーバ側で問題が起きました")
 		return
+	}
+
+	// 打ち間違えた後に入れた人を、次のログインで待たせない。
+	if err := h.throttle.Clear(r.Context(), req.LoginID); err != nil {
+		log.Printf("login: %v", err)
 	}
 
 	token, expiresAt, err := h.sessions.Create(r.Context(), user.ID)
