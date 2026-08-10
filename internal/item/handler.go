@@ -20,11 +20,17 @@ type Handler struct {
 
 	// requireLogin はログイン必須。member も通す。
 	requireLogin Middleware
+
+	// requireAdmin は admin 限定。備品マスタの書き込みに使う。
+	//
+	// member が備品マスタを書き換えられないことが、スプレッドシート共有ではなく
+	// システム化する主目的（m1-spec §5）。UIで隠すだけにせず必ず通す。
+	requireAdmin Middleware
 }
 
 // NewHandler は Handler を作る。
-func NewHandler(store *Store, requireLogin Middleware) *Handler {
-	return &Handler{store: store, requireLogin: requireLogin}
+func NewHandler(store *Store, requireLogin, requireAdmin Middleware) *Handler {
+	return &Handler{store: store, requireLogin: requireLogin, requireAdmin: requireAdmin}
 }
 
 // Register は担当するルートを mux に登録する。
@@ -35,6 +41,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/items", h.requireLogin(http.HandlerFunc(h.handleList)))
 	mux.Handle("GET /api/items/filters", h.requireLogin(http.HandlerFunc(h.handleFilters)))
 	mux.Handle("GET /api/items/{code}", h.requireLogin(http.HandlerFunc(h.handleDetail)))
+
+	h.registerWriteRoutes(mux)
 }
 
 // itemResponse は備品を返す形。

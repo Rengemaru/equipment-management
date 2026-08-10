@@ -102,7 +102,7 @@ func runServer(ctx context.Context, cfg *config.Config, sqldb *sql.DB) error {
 
 	// 備品の読み取りは member も可。誰が何を持っているかが全員に見える状態を
 	// 作ることが、罰則より強く働く（CLAUDE.md）。
-	item.NewHandler(item.NewStore(sqldb), authHandler.RequireLogin).Register(mux)
+	item.NewHandler(item.NewStore(sqldb), authHandler.RequireLogin, authHandler.RequireAdmin).Register(mux)
 
 	// /healthz は Compose のヘルスチェックが数秒ごとに叩く。
 	// 成功している間はログに出さない。出すと本当に見たい行が流れる。

@@ -16,7 +16,7 @@ func newTestHandler(t *testing.T) (*Handler, *Store) {
 	t.Helper()
 
 	s := newTestStore(t)
-	return NewHandler(s, passthrough), s
+	return NewHandler(s, passthrough, passthrough), s
 }
 
 // get は経路にリクエストを流す。
