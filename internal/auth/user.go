@@ -53,6 +53,14 @@ var (
 // 記号を広く許すと、URLやCSVに入れた時のエスケープを都度考えることになる。
 var loginIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{2,31}$`)
 
+// hashCost は bcrypt のコスト。既定（10）で、数十名の規模なら十分。
+// ログインは長期セッションのため1年に数回しか起きない。
+//
+// 変数にしているのはテストのため。このパッケージのテストは何十回も
+// ハッシュ化するので、既定のままだと -race 込みで分単位になり、
+// CI で回すには重すぎる。本番の経路でこの値を書き換えないこと。
+var hashCost = bcrypt.DefaultCost
+
 const (
 	// minPasswordLen は最小の長さ。数十名の身内利用なので、
 	// 複雑さの要求（記号を含める等）は課さない。長さだけ見る。
@@ -124,8 +132,7 @@ func HashPassword(plain string) (string, error) {
 		return "", err
 	}
 
-	// コストは既定（10）。数十名の規模でログインは1年に数回しか起きない。
-	hash, err := bcrypt.GenerateFromPassword([]byte(plain), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(plain), hashCost)
 	if err != nil {
 		return "", fmt.Errorf("パスワードのハッシュ化: %w", err)
 	}

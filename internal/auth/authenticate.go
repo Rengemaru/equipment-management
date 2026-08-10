@@ -24,7 +24,8 @@ var ErrInvalidCredentials = errors.New("ログインIDまたはパスワード�
 // 失敗したログインが一度も無ければ計算されない。
 var dummyHash = sync.OnceValue(func() []byte {
 	// 平文は何でもよい。一致させる相手がいない。
-	h, err := bcrypt.GenerateFromPassword([]byte("dummy password for timing"), bcrypt.DefaultCost)
+	// コストは本物と揃える。ここだけ軽いと、応答時間で見分けられる。
+	h, err := bcrypt.GenerateFromPassword([]byte("dummy password for timing"), hashCost)
 	if err != nil {
 		// 生成できないのは bcrypt の実装が壊れている場合だけ。
 		// その状態で認証を続けても意味がない。
