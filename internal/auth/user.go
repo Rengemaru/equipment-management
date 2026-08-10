@@ -49,6 +49,22 @@ var (
 	ErrPasswordMismatch = errors.New("パスワードが違う")
 )
 
+// validationError は入力の誤り。
+//
+// 型で区別できるようにしているのは、ハンドラが 400 と 500 を
+// 取り違えないため。文面で判定すると、文言を直した時に静かに壊れる。
+// メッセージは利用者にそのまま見せる前提で書くこと。
+type validationError struct {
+	msg string
+}
+
+func (e *validationError) Error() string { return e.msg }
+
+// invalidf は validationError を作る。
+func invalidf(format string, args ...any) error {
+	return &validationError{msg: fmt.Sprintf(format, args...)}
+}
+
 // loginIDPattern は許可するログインIDの形。
 // 記号を広く許すと、URLやCSVに入れた時のエスケープを都度考えることになる。
 var loginIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{2,31}$`)
@@ -143,12 +159,12 @@ func HashPassword(plain string) (string, error) {
 // ValidatePassword は長さだけを検査する。
 func ValidatePassword(plain string) error {
 	if utf8.RuneCountInString(plain) < minPasswordLen {
-		return fmt.Errorf("パスワードは%d文字以上にする", minPasswordLen)
+		return invalidf("パスワードは%d文字以上にする", minPasswordLen)
 	}
 	// bcrypt は72バイトを超えると黙って切るのではなくエラーを返す版がある。
 	// 先に弾いて、原因の分かるメッセージにする。
 	if len(plain) > maxPasswordBytes {
-		return fmt.Errorf("パスワードが長すぎる（%dバイト。%dバイトまで）",
+		return invalidf("パスワードが長すぎる（%dバイト。%dバイトまで）",
 			len(plain), maxPasswordBytes)
 	}
 	return nil
@@ -163,7 +179,7 @@ func NormalizeLoginID(loginID string) string {
 // ValidateLoginID は形を検査する。正規化済みの値を渡すこと。
 func ValidateLoginID(loginID string) error {
 	if !loginIDPattern.MatchString(loginID) {
-		return fmt.Errorf(
+		return invalidf(
 			"ログインIDは英数字・ハイフン・アンダースコアの3〜32文字にする（英数字で始める）: %q",
 			loginID)
 	}
@@ -177,7 +193,7 @@ func ValidateLoginID(loginID string) error {
 func (s *Store) Create(ctx context.Context, in NewUser) (*User, error) {
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
-		return nil, errors.New("名前が空")
+		return nil, invalidf("名前が空")
 	}
 
 	loginID := NormalizeLoginID(in.LoginID)
@@ -186,7 +202,7 @@ func (s *Store) Create(ctx context.Context, in NewUser) (*User, error) {
 	}
 
 	if !in.Role.Valid() {
-		return nil, fmt.Errorf("権限が不正: %q", in.Role)
+		return nil, invalidf("権限が不正: %q", in.Role)
 	}
 
 	hash, err := HashPassword(in.Password)

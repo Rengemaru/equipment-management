@@ -45,6 +45,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/me", h.RequireLogin(http.HandlerFunc(h.handleMe)))
 
 	mux.Handle("POST /api/password", h.RequireLogin(http.HandlerFunc(h.handlePasswordChange)))
+
+	h.registerUserRoutes(mux)
 }
 
 // loginRequest はログインの入力。
