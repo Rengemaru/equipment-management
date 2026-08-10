@@ -67,6 +67,33 @@ func (h *Handler) RequireLogin(next http.Handler) http.Handler {
 	})
 }
 
+// RequireAdmin は admin でなければ 403 を返すミドルウェア。
+//
+// 中で RequireLogin を通す。並べて使う形にすると、いつか片方だけ書いた経路ができる。
+// 「admin だけ」と書いたつもりが誰でも通る、という間違いを起こせないようにする。
+//
+// member が備品マスタを書き換えられないことは、スプレッドシート共有ではなく
+// システム化する主目的（m1-spec §5）。UIでボタンを隠すだけにせず、必ずここを通す。
+func (h *Handler) RequireAdmin(next http.Handler) http.Handler {
+	return h.RequireLogin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, ok := UserFrom(r.Context())
+		if !ok {
+			// RequireLogin を通っている以上ここには来ない。
+			// 来たなら経路の組み立てが壊れている。
+			log.Print("RequireAdmin: 利用者を取り出せない")
+			httpx.WriteError(w, http.StatusInternalServerError, "サーバ側で問題が起きました")
+			return
+		}
+
+		if user.Role != RoleAdmin {
+			httpx.WriteError(w, http.StatusForbidden, "この操作には管理者権限が必要です")
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	}))
+}
+
 // passwordChangeExempt は初期パスワードのままでも通してよい経路。
 //
 // 変更に必要な最小限だけを挙げる。ここに足す時は、初期パスワードを
