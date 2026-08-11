@@ -206,7 +206,9 @@ cd web; npm run build; npm test; cd ..
 │       ├── db.go
 │       └── migrations/        # 0001_init.sql, 0002_....sql
 ├── web/                       # React + Vite
-├── assets/fonts/              # NotoSansJP.ttf（embed する）
+├── assets/
+│   ├── fonts.go               # NotoSansJP.ttf を embed する（go:embed は .. を辿れない）
+│   └── fonts/                 # NotoSansJP.ttf とライセンス
 ├── .devcontainer/
 │   └── devcontainer.json      # VS Code が dev サービスに接続する設定
 ├── .env.example               # 環境変数の雛形（.env はコミットしない）
@@ -562,7 +564,9 @@ DTO を介して変換する。スキーマ変更が即 API の破壊になら�
 - [x] QR生成（`/i/{code}`、誤り訂正レベル **M**）
       （`internal/label`。`ItemURL` は末尾スラッシュを重ねない。`//i/0042` が
       焼き付くと印刷後に直せない。クワイエットゾーンを削らないこと）
-- [ ] Noto Sans JP の TTF を `embed` し `fpdf` に登録（**日本語1行が出ることを目視確認してからコミット**）
+- [x] Noto Sans JP の TTF を `embed` し `fpdf` に登録（**日本語1行が出ることを目視確認してからコミット**）
+      （PDFを作る経路は `newPDF()` に集約する。登録し忘れた経路を作らない。
+      **差し替えるなら静的TTFのみ。** OTF（CFF）とバリアブルフォントは fpdf で使えない）
 - [ ] ラベルPDF（A4 24面 / 70×33.9mm、QR + コード + 品名）
 - [ ] 印刷範囲の指定（コード範囲・分類）
 
