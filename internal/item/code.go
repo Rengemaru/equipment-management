@@ -36,16 +36,29 @@ type Queryer interface {
 // 同じトランザクション内で呼べば書き込みは直列化される。
 // UNIQUE 制約も張ってあるので、取りこぼしても重複はDBが弾く。
 func NextCode(ctx context.Context, q Queryer) (string, error) {
+	n, err := nextCodeNumber(ctx, q)
+	if err != nil {
+		return "", err
+	}
+
+	return FormatCode(n), nil
+}
+
+// nextCodeNumber は次に採番される番号を、書式にする前の数値で返す。
+//
+// CSVインポートのプレビューが「どこからどこまでのコードになるか」を示すのに、
+// 連番を足せる形が要る。'0001' から数値に戻す処理を呼び出し側に書かせない。
+func nextCodeNumber(ctx context.Context, q Queryer) (int64, error) {
 	// CAST を使う。文字列比較だと桁が増えた時に '9999' > '10000' になる。
 	// 数値にならないコードは 0 として扱われ、最大値に影響しない。
 	const query = `SELECT IFNULL(MAX(CAST(code AS INTEGER)), 0) FROM items`
 
 	var max int64
 	if err := q.QueryRowContext(ctx, query).Scan(&max); err != nil {
-		return "", fmt.Errorf("備品コードの採番: %w", err)
+		return 0, fmt.Errorf("備品コードの採番: %w", err)
 	}
 
-	return FormatCode(max + 1), nil
+	return max + 1, nil
 }
 
 // FormatCode は数値を備品コードの形にする。

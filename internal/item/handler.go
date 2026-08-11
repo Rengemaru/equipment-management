@@ -52,6 +52,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 
 	h.registerWriteRoutes(mux)
 	h.registerPhotoRoutes(mux)
+	h.registerImportRoutes(mux)
 }
 
 // itemResponse は備品を返す形。
