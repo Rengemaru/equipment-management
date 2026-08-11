@@ -10,8 +10,8 @@ import (
 	"testing"
 )
 
-// previewCSV はCSVを multipart で送り、プレビューを取る。
-func previewCSV(t *testing.T, h *Handler, content string) *httptest.ResponseRecorder {
+// sendCSV はCSVを multipart で送る。exclude は除外する行の指定。
+func sendCSV(t *testing.T, h *Handler, path, content string, exclude ...string) *httptest.ResponseRecorder {
 	t.Helper()
 
 	var body bytes.Buffer
@@ -24,6 +24,11 @@ func previewCSV(t *testing.T, h *Handler, content string) *httptest.ResponseReco
 	if _, err := part.Write([]byte(content)); err != nil {
 		t.Fatalf("write: %v", err)
 	}
+	for _, v := range exclude {
+		if err := mw.WriteField(excludeFormField, v); err != nil {
+			t.Fatalf("WriteField: %v", err)
+		}
+	}
 	if err := mw.Close(); err != nil {
 		t.Fatalf("close: %v", err)
 	}
@@ -31,13 +36,25 @@ func previewCSV(t *testing.T, h *Handler, content string) *httptest.ResponseReco
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/items/import/preview", &body)
+	req := httptest.NewRequest(http.MethodPost, path, &body)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
 	return w
+}
+
+// previewCSV はプレビューを取る。
+func previewCSV(t *testing.T, h *Handler, content string) *httptest.ResponseRecorder {
+	t.Helper()
+	return sendCSV(t, h, "/api/items/import/preview", content)
+}
+
+// importCSV は取り込みを確定する。
+func importCSV(t *testing.T, h *Handler, content string, exclude ...string) *httptest.ResponseRecorder {
+	t.Helper()
+	return sendCSV(t, h, "/api/items/import", content, exclude...)
 }
 
 // decodePreview はプレビューの応答を読む。
@@ -294,25 +311,304 @@ func TestImportPreview_添付が無ければ400(t *testing.T) {
 	}
 }
 
-// 権限チェックはUIで隠すだけにしない。経路が requireAdmin を通ること。
-func TestImportPreview_adminでなければ拒否される(t *testing.T) {
-	s := newTestStore(t)
-	photos, err := NewPhotoStore(t.TempDir())
+// decodeImportResult は取り込みの応答を読む。
+func decodeImportResult(t *testing.T, w *httptest.ResponseRecorder) importResultResponse {
+	t.Helper()
+
+	var got struct {
+		Result importResultResponse `json:"result"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答が JSON でない: %v (%s)", err, w.Body.String())
+	}
+	return got.Result
+}
+
+// codesOf は登録されている備品コードを備品コード順で返す。
+func codesOf(t *testing.T, s *Store) []string {
+	t.Helper()
+
+	items, err := s.List(context.Background(), Filter{})
 	if err != nil {
-		t.Fatalf("NewPhotoStore: %v", err)
+		t.Fatalf("List: %v", err)
 	}
 
-	// admin を拒否するミドルウェアを挿す。経路が素通りしていれば 200 が返る。
-	denyAdmin := func(http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusForbidden)
+	codes := make([]string, 0, len(items))
+	for _, it := range items {
+		codes = append(codes, it.Code)
+	}
+	return codes
+}
+
+// 数量ぶんに展開し、それぞれに別のコードを採る（m1-spec §5）。
+func TestImport_数量ぶんに展開して登録する(t *testing.T) {
+	h, s := newTestHandler(t)
+
+	text := templateHeader + "\n" +
+		"三脚,撮影機材,1,棚A-1,,,,,\n" +
+		"パイプ椅子,備品,3,倉庫,,,,,\n"
+
+	w := importCSV(t, h, text)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	got := decodeImportResult(t, w)
+	if got.RecordCount != 4 {
+		t.Errorf("RecordCount = %d。1+3 = 4 を期待", got.RecordCount)
+	}
+	if got.CodeFrom != "0001" || got.CodeTo != "0004" {
+		t.Errorf("採番の範囲が違う: %q〜%q", got.CodeFrom, got.CodeTo)
+	}
+
+	// 続き番号で採る。この範囲がそのままラベルの印刷範囲になる。
+	codes := codesOf(t, s)
+	want := []string{"0001", "0002", "0003", "0004"}
+	if len(codes) != len(want) {
+		t.Fatalf("件数 = %d。4件を期待", len(codes))
+	}
+	for i, c := range want {
+		if codes[i] != c {
+			t.Errorf("codes[%d] = %q。%q を期待", i, codes[i], c)
+		}
+	}
+
+	items, err := s.List(context.Background(), Filter{Query: "パイプ椅子"})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("パイプ椅子 = %d件。数量ぶんの3件を期待", len(items))
+	}
+	// 展開した先も同じ内容になる。空欄は登録時と同じ既定値。
+	if items[0].Location != "倉庫" || items[0].Condition != ConditionGood {
+		t.Errorf("内容が違う: %+v", items[0])
+	}
+}
+
+// 既存の続きから採り、空き番号を埋めない。
+func TestImport_既存の続きから採番する(t *testing.T) {
+	h, s := newTestHandler(t)
+
+	// 0001 と 0005 がある状態。0002〜0004 は空いているが埋めない。
+	insert(t, s, "0001", "既存A", nil)
+	insert(t, s, "0005", "既存B", nil)
+
+	w := importCSV(t, h, templateHeader+"\n三脚,撮影機材,2,棚A-1,,,,,\n")
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	got := decodeImportResult(t, w)
+	if got.CodeFrom != "0006" || got.CodeTo != "0007" {
+		t.Errorf("採番の範囲が違う: %q〜%q。0006〜0007 を期待", got.CodeFrom, got.CodeTo)
+	}
+}
+
+// 全件成功か全件失敗。途中まで入った状態は、やり直しの判断がつかなくなる。
+func TestImport_誤りが1件でもあれば何も登録しない(t *testing.T) {
+	h, s := newTestHandler(t)
+
+	text := templateHeader + "\n" +
+		"三脚,撮影機材,1,棚A-1,,,,,\n" +
+		"椅子,備品,あ,倉庫,,,,,\n" // 数量が数値でない
+
+	w := importCSV(t, h, text)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d。400 を期待: %s", w.Code, w.Body.String())
+	}
+
+	// 文言で分岐させないための識別子。
+	var errResp struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &errResp); err != nil {
+		t.Fatalf("応答が JSON でない: %v", err)
+	}
+	if errResp.Code != "csv_invalid" {
+		t.Errorf("code = %q。csv_invalid を期待", errResp.Code)
+	}
+
+	// 誤りのない行も入れない。
+	if codes := codesOf(t, s); len(codes) != 0 {
+		t.Errorf("%d件 登録された: %v。全件失敗を期待", len(codes), codes)
+	}
+}
+
+// 記入例の消し忘れを、CSVを直させずに除ける。手間を増やすと使われなくなる。
+func TestImport_指定した行を除外する(t *testing.T) {
+	h, s := newTestHandler(t)
+
+	text := templateHeader + "\n" +
+		"三脚（大）,撮影機材,1,棚A-1,,,,,\n" + // 2行目＝テンプレートの記入例
+		"パイプ椅子,備品,2,倉庫,,,,,\n"
+
+	w := importCSV(t, h, text, "2")
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	if got := decodeImportResult(t, w).RecordCount; got != 2 {
+		t.Errorf("RecordCount = %d。除外後の2件を期待", got)
+	}
+
+	items, err := s.List(context.Background(), Filter{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	for _, it := range items {
+		if it.Name == "三脚（大）" {
+			t.Errorf("除外した行が登録されている: %+v", it)
+		}
+	}
+}
+
+// まとめた形とフィールドを繰り返す形の両方を受ける。
+// 送り方の違いだけで取り込めないのは、原因が分かりにくい割に得るものがない。
+func TestImport_除外の指定はカンマ区切りでも繰り返しでも受ける(t *testing.T) {
+	text := templateHeader + "\n" +
+		"A,備品,1,倉庫,,,,,\n" +
+		"B,備品,1,倉庫,,,,,\n" +
+		"C,備品,1,倉庫,,,,,\n"
+
+	for _, tc := range []struct {
+		name    string
+		exclude []string
+	}{
+		{name: "カンマ区切り", exclude: []string{"2,3"}},
+		{name: "繰り返し", exclude: []string{"2", "3"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, s := newTestHandler(t)
+
+			w := importCSV(t, h, text, tc.exclude...)
+			if w.Code != http.StatusCreated {
+				t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+			}
+
+			items, err := s.List(context.Background(), Filter{})
+			if err != nil {
+				t.Fatalf("List: %v", err)
+			}
+			if len(items) != 1 || items[0].Name != "C" {
+				t.Errorf("残った備品が違う: %+v", items)
+			}
 		})
 	}
-	h := NewHandler(s, photos, passthrough, denyAdmin)
+}
+
+// 除外に指定した行が無ければ取り込まない。
+//
+// 黙って無視すると、行番号がずれたCSVを送った時に、除いたつもりの記入例が
+// そのまま入る。備品コードは再利用しないため入ってしまうと戻せない。
+func TestImport_除外に無い行を指定したら何も登録しない(t *testing.T) {
+	h, s := newTestHandler(t)
+
+	text := templateHeader + "\n三脚,撮影機材,1,棚A-1,,,,,\n"
+
+	w := importCSV(t, h, text, "9")
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d。400 を期待: %s", w.Code, w.Body.String())
+	}
+	if codes := codesOf(t, s); len(codes) != 0 {
+		t.Errorf("%d件 登録された: %v", len(codes), codes)
+	}
+}
+
+func TestImport_全ての行を除外したら400(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	text := templateHeader + "\n三脚,撮影機材,1,棚A-1,,,,,\n"
+
+	w := importCSV(t, h, text, "2")
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d。400 を期待: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestImport_除外の指定が数値でなければ400(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	text := templateHeader + "\n三脚,撮影機材,1,棚A-1,,,,,\n"
+
+	w := importCSV(t, h, text, "２行目")
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d。400 を期待: %s", w.Code, w.Body.String())
+	}
+}
+
+// プレビューで見た通りの件数が入ること。
+// 見せた数と違う数が入ると、何が起きたのか誰にも分からなくなる。
+func TestImport_プレビューと同じ件数が登録される(t *testing.T) {
+	h, s := newTestHandler(t)
+
+	insert(t, s, "0003", "既存", nil)
+
+	text := templateHeader + "\n" +
+		"三脚,撮影機材,2,棚A-1,,,,,\n" +
+		"椅子,備品,5,倉庫,,,,,\n"
+
+	preview := decodePreview(t, previewCSV(t, h, text))
+	result := decodeImportResult(t, importCSV(t, h, text))
+
+	if preview.RecordCount != result.RecordCount {
+		t.Errorf("件数が違う: プレビュー %d、取り込み %d", preview.RecordCount, result.RecordCount)
+	}
+	// 間に別の登録が無ければ、予定した範囲がそのまま実際の範囲になる。
+	if preview.CodeFrom != result.CodeFrom || preview.CodeTo != result.CodeTo {
+		t.Errorf("採番の範囲が違う: プレビュー %q〜%q、取り込み %q〜%q",
+			preview.CodeFrom, preview.CodeTo, result.CodeFrom, result.CodeTo)
+	}
+}
+
+func TestImport_添付が無ければ400(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	w := send(t, h, http.MethodPost, "/api/items/import", `{}`)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d。400 を期待: %s", w.Code, w.Body.String())
+	}
+}
+
+// 権限チェックはUIで隠すだけにしない。経路が requireAdmin を通ること。
+func TestImport_adminでなければ拒否される(t *testing.T) {
+	h := newDenyAdminHandler(t)
+
+	w := importCSV(t, h, templateHeader+"\n三脚,撮影機材,1,棚A-1,,,,,\n")
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d。403 を期待", w.Code)
+	}
+}
+
+// 権限チェックはUIで隠すだけにしない。経路が requireAdmin を通ること。
+func TestImportPreview_adminでなければ拒否される(t *testing.T) {
+	h := newDenyAdminHandler(t)
 
 	w := previewCSV(t, h, templateHeader+"\n三脚,撮影機材,1,棚A-1,,,,,\n")
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("status = %d。403 を期待", w.Code)
 	}
+}
+
+// newDenyAdminHandler は admin を拒否する Handler を返す。
+// 経路が requireAdmin を通っていなければ、素通りして 200 系が返る。
+func newDenyAdminHandler(t *testing.T) *Handler {
+	t.Helper()
+
+	s := newTestStore(t)
+	photos, err := NewPhotoStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewPhotoStore: %v", err)
+	}
+
+	denyAdmin := func(http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusForbidden)
+		})
+	}
+
+	return NewHandler(s, photos, passthrough, denyAdmin)
 }
