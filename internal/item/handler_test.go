@@ -11,6 +11,10 @@ import (
 // 認証そのものは auth パッケージのテストで確かめている。
 func passthrough(next http.Handler) http.Handler { return next }
 
+// testHostURL は QR に埋め込む土台。末尾にスラッシュを含まない
+// （config が検査済みの値が渡ってくる前提）。
+const testHostURL = "https://example.test"
+
 // newTestHandler は Handler と Store を返す。
 func newTestHandler(t *testing.T) (*Handler, *Store) {
 	t.Helper()
@@ -20,7 +24,7 @@ func newTestHandler(t *testing.T) (*Handler, *Store) {
 	if err != nil {
 		t.Fatalf("NewPhotoStore: %v", err)
 	}
-	return NewHandler(s, photos, passthrough, passthrough), s
+	return NewHandler(s, photos, testHostURL, passthrough, passthrough), s
 }
 
 // get は経路にリクエストを流す。

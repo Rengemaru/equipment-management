@@ -104,6 +104,16 @@ type Filter struct {
 	Condition      Condition
 	LocationStatus LocationStatus
 
+	// CodeFrom / CodeTo は備品コードの範囲（両端を含む）。0 は指定なし。
+	//
+	// ラベル印刷の範囲指定に使う。棚に貼る作業は「0001から0050まで刷って
+	// 順に貼る」形で進むため、範囲で切れないと毎回全件を刷ることになる。
+	//
+	// **数値として比較する。** 文字列で比べると "10000" < "9999" になり、
+	// 4桁を超えた時点で新しい備品が範囲から静かに漏れる。
+	CodeFrom int
+	CodeTo   int
+
 	// IncludeDiscarded は廃棄済みを含めるか。
 	//
 	// 既定では除く。廃棄は物理削除の代わりであり、普段の一覧に出し続けると
@@ -142,6 +152,14 @@ func (s *Store) List(ctx context.Context, f Filter) ([]*Item, error) {
 	if v := strings.TrimSpace(f.Location); v != "" {
 		where = append(where, `location = ?`)
 		args = append(args, v)
+	}
+	if f.CodeFrom > 0 {
+		where = append(where, `CAST(code AS INTEGER) >= ?`)
+		args = append(args, f.CodeFrom)
+	}
+	if f.CodeTo > 0 {
+		where = append(where, `CAST(code AS INTEGER) <= ?`)
+		args = append(args, f.CodeTo)
 	}
 	if f.Condition != "" {
 		where = append(where, `condition = ?`)

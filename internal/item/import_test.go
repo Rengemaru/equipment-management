@@ -610,5 +610,5 @@ func newDenyAdminHandler(t *testing.T) *Handler {
 		})
 	}
 
-	return NewHandler(s, photos, passthrough, denyAdmin)
+	return NewHandler(s, photos, testHostURL, passthrough, denyAdmin)
 }

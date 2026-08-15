@@ -18,6 +18,12 @@ type Middleware func(http.Handler) http.Handler
 type Handler struct {
 	store *Store
 
+	// hostURL は QR に埋め込む URL の土台（config.HostURL）。
+	//
+	// ラベルに焼き付く値で、貼ってからは直せない。ここで組み立てず、
+	// 起動時に検査済みの値をそのまま受け取る。
+	hostURL string
+
 	// requireLogin はログイン必須。member も通す。
 	requireLogin Middleware
 
@@ -32,10 +38,11 @@ type Handler struct {
 }
 
 // NewHandler は Handler を作る。
-func NewHandler(store *Store, photos *PhotoStore, requireLogin, requireAdmin Middleware) *Handler {
+func NewHandler(store *Store, photos *PhotoStore, hostURL string, requireLogin, requireAdmin Middleware) *Handler {
 	return &Handler{
 		store:        store,
 		photos:       photos,
+		hostURL:      hostURL,
 		requireLogin: requireLogin,
 		requireAdmin: requireAdmin,
 	}
@@ -54,6 +61,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	h.registerPhotoRoutes(mux)
 	h.registerImportRoutes(mux)
 	h.registerExportRoutes(mux)
+	h.registerLabelRoutes(mux)
 }
 
 // itemResponse は備品を返す形。

@@ -106,7 +106,7 @@ func runServer(ctx context.Context, cfg *config.Config, sqldb *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("写真の保存先: %w", err)
 	}
-	item.NewHandler(item.NewStore(sqldb), photos, authHandler.RequireLogin, authHandler.RequireAdmin).Register(mux)
+	item.NewHandler(item.NewStore(sqldb), photos, cfg.HostURL, authHandler.RequireLogin, authHandler.RequireAdmin).Register(mux)
 
 	// /healthz は Compose のヘルスチェックが数秒ごとに叩く。
 	// 成功している間はログに出さない。出すと本当に見たい行が流れる。
