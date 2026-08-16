@@ -9,7 +9,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('help', 'up', 'down', 'sh', 'logs', 'fmt', 'test')]
+    [ValidateSet('help', 'up', 'down', 'sh', 'logs', 'fmt', 'test', 'test-web')]
     [string]$Task = 'help'
 )
 
@@ -36,6 +36,7 @@ switch ($Task) {
         Write-Host '  logs           コンテナのログを追う'
         Write-Host '  fmt            gofmt と go vet をかける'
         Write-Host '  test           Go のテストを実行する'
+        Write-Host '  test-web       フロントの型検査・ビルド・テストを実行する'
     }
     'up'    { docker @ComposeArgs up -d }
     'down'  { docker @ComposeArgs down }
@@ -43,6 +44,13 @@ switch ($Task) {
     'logs'  { docker @ComposeArgs logs -f }
     'fmt'   { Invoke-InContainer 'gofmt -w . && go vet ./...' }
     'test'  { Invoke-InContainer 'go test ./...' }
+
+    # npm ci を先に流すのは、node_modules が名前付きボリュームにあり、
+    # package-lock.json を変えても自動では反映されないため。手元と CI で同じ依存を検査する。
+    #
+    # テストだけでなく build も通すのは、型検査が npm run build（tsc --noEmit）にしか
+    # 無いため。vitest は esbuild で型を落として実行するので、型エラーを見逃す。
+    'test-web' { Invoke-InContainer 'cd web && npm ci && npm run build && npm test' }
 }
 
 exit $LASTEXITCODE

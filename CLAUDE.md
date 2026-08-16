@@ -256,8 +256,9 @@ npm run dev            # コンテナ内（web/ で）
 | ログ | `make logs` | `.\make.ps1 logs` |
 | フォーマット（gofmt + vet） | `make fmt` | `.\make.ps1 fmt` |
 | Goテスト | `make test` | `.\make.ps1 test` |
+| フロント（型検査+ビルド+テスト） | `make test-web` | `.\make.ps1 test-web` |
 
-`test-web` / `create-admin` / `build` は、**対象の機能を実装した時に足す。**
+`create-admin` / `build` は、**対象の機能を実装した時に足す。**
 動かないターゲットを先に置くと、壊れているのか未実装なのか区別できなくなる。
 
 **タスクを増やすときは `Makefile` と `make.ps1` の両方に追加する。** 片方だけ更新すると、環境を移った瞬間に動かなくなる。
@@ -488,7 +489,7 @@ DTO を介して変換する。スキーマ変更が即 API の破壊になら�
 ### 共通基盤（マイルストーンに属さない）
 
 - [x] GitHub Actions で CI（`.github/workflows/ci.yml`。push ごとに build / gofmt / `go vet` /
-      `go test -race`、および `.ps1` の BOM を検査する）
+      `go test -race`、フロントの型検査・ビルド・テスト、および `.ps1` の BOM を検査する）
 
 **本番用の `compose.yaml` と Dockerfile のビルド/実行ステージは M1 の仕上げで作る。**
 中身が無い段階で書いても検証できず、動かないまま腐るため。
@@ -576,7 +577,9 @@ DTO を介して変換する。スキーマ変更が即 API の破壊になら�
       対象0件は 400。白紙のシートを刷るとラベルシールが1枚無駄になる）
 
 **フロントエンド**
-- [ ] Vite + TypeScript + Tailwind + React Router の雛形
+- [x] Vite + TypeScript + Tailwind + React Router の雛形
+      （画面は `App.tsx` に1つずつ足す。**未実装画面へのリンクを先に置かない。**
+      知らないURLは 404 を出す。QRの読み間違いがそこに来るため、白い画面にしない）
 - [ ] APIクライアント + レスポンス型定義 + 認証状態の管理
 - [ ] `/login` と `/password`
 - [ ] `/items`（一覧・検索。分類・保管場所・状態でフィルタ）

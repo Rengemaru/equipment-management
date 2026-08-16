@@ -58,6 +58,40 @@ jobs:
       - name: テスト
         run: go test -race ./...
 
+  web:
+    name: フロント
+    runs-on: ubuntu-latest
+
+    # web/ 以外を触らない変更でも走らせる。パスで絞ると、フロントが依存している
+    # API の変更でフロントのテストが落ちても気付けない。
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Go は go.mod からバージョンを読めるが、Node にはそれに当たるファイルが無い。
+      # ここの数字は Dockerfile の node:22-bookworm と揃っている必要がある。
+      # __上げるときは両方を直す。__
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # npm install ではなく npm ci。lockfile どおりに入れ、依存が勝手に動かないようにする。
+      - name: 依存の取得
+        run: npm ci
+
+      # build に tsc --noEmit が含まれる。型検査はここにしか無い
+      # （vitest は esbuild で型を落として実行するため、テストでは型エラーを見逃す）。
+      - name: 型検査とビルド
+        run: npm run build
+
+      - name: テスト
+        run: npm test
+
   # PowerShell 5.1 は BOM の無い .ps1 を Shift_JIS として読む。
   # UTF-8 で保存すると日本語コメントが壊れ、壊れたバイト列が改行を飲み込んで
   # スクリプト全体がパースエラーになる。実際に make.ps1 がこれで動かなくなった。
