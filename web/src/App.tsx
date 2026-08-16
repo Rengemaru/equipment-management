@@ -1,6 +1,9 @@
 import { Link, Route, Routes } from 'react-router'
 
+import { useAuth } from './auth/AuthProvider'
+import { RequireAdmin } from './auth/RequireAdmin'
 import { RequireAuth } from './auth/RequireAuth'
+import AdminItems from './screens/AdminItems'
 import ItemDetail from './screens/ItemDetail'
 import Items from './screens/Items'
 import Login from './screens/Login'
@@ -60,7 +63,17 @@ export default function App() {
         }
       />
 
-      {/* 知らないURLで白い画面を出さない。QRの読み間違いはここに来る。 */}
+      {/* 運営のみ。RequireAdmin は中で RequireAuth を通す。 */}
+      <Route
+        path="/admin/items"
+        element={
+          <RequireAdmin>
+            <AdminItems />
+          </RequireAdmin>
+        }
+      />
+
+      {/* 知らないURLで白い画面を出さない。 */}
       <Route path="*" element={<NotFound />} />
     </Routes>
   )
@@ -72,12 +85,30 @@ export default function App() {
  * 貸出中一覧や自分の貸出はM2で作る。先に置くと、押せない項目が並ぶ。
  */
 function Home() {
+  const auth = useAuth()
+  const isAdmin = auth.status === 'authenticated' && auth.user.role === 'admin'
+
   return (
     <main className="mx-auto max-w-screen-sm p-4">
       <h1 className="text-xl font-bold">備品管理</h1>
-      <Link className="mt-4 inline-block text-blue-700 underline" to="/items">
-        備品一覧
-      </Link>
+
+      <ul className="mt-4 space-y-2">
+        <li>
+          <Link className="text-blue-700 underline" to="/items">
+            備品一覧
+          </Link>
+        </li>
+
+        {/* 運営の画面は運営にだけ出す。member に出すと、押した先で
+            「権限がありません」に当たるだけになる。 */}
+        {isAdmin && (
+          <li>
+            <Link className="text-blue-700 underline" to="/admin/items">
+              備品マスタ管理
+            </Link>
+          </li>
+        )}
+      </ul>
     </main>
   )
 }

@@ -52,8 +52,9 @@ export type Condition = (typeof CONDITIONS)[number]
 export const LOCATION_STATUSES = ['在庫', '所在不明_未確認', '所在不明_確定'] as const
 export type LocationStatus = (typeof LOCATION_STATUSES)[number]
 
-/** Owner は所有区分。 */
-export type Owner = 'サークル' | '学科'
+/** OWNERS は所有区分の全て。 */
+export const OWNERS = ['サークル', '学科'] as const
+export type Owner = (typeof OWNERS)[number]
 
 /** Item は1件の備品。 */
 export type Item = {
@@ -80,6 +81,27 @@ export type Item = {
 
   note: string
   updated_at: string
+}
+
+/**
+ * ItemAttributes は登録・更新で送る内容。
+ *
+ * 備品コードを含めない。__コードは採番したら二度と変えない。__
+ * ラベルは貼り替えられないため、変えると実物との対応が壊れる。
+ *
+ * 一部だけ送る形にしない。送らなかった項目を「変更なし」と解釈させると、
+ * 画面で消した備考が消えないなど、意図と結果がずれる（サーバも全項目を要求する）。
+ */
+export type ItemAttributes = {
+  name: string
+  category: string
+  model: string
+  owner: Owner
+  is_free_use: boolean
+  location: string
+  condition: Condition
+  location_status: LocationStatus
+  note: string
 }
 
 /**

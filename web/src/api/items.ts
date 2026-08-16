@@ -5,8 +5,8 @@
  * ことが、罰則より強く働く（CLAUDE.md）。
  */
 
-import { request } from './client'
-import type { Condition, Item, LocationStatus } from './types'
+import { request, requestJSON } from './client'
+import type { Condition, Item, ItemAttributes, LocationStatus } from './types'
 
 /**
  * ItemFilter は一覧の絞り込み。空の項目は条件にしない。
@@ -23,6 +23,13 @@ export type ItemFilter = {
   location?: string
   condition?: Condition | ''
   locationStatus?: LocationStatus | ''
+
+  /**
+   * includeDiscarded は廃棄済みも含めるか。
+   *
+   * 運営が棚を整理する時に要る。普段の一覧では除いたままにする。
+   */
+  includeDiscarded?: boolean
 }
 
 /** FilterOptions は絞り込みの選択肢。分類と保管場所は自由入力のため固定できない。 */
@@ -42,6 +49,9 @@ export async function listItems(filter: ItemFilter): Promise<Item[]> {
   appendIfSet(params, 'location', filter.location)
   appendIfSet(params, 'condition', filter.condition)
   appendIfSet(params, 'location_status', filter.locationStatus)
+  if (filter.includeDiscarded === true) {
+    params.set('include_discarded', '1')
+  }
 
   const query = params.toString()
   const res = await request<{ items: Item[] }>(`/api/items${query === '' ? '' : `?${query}`}`)
@@ -58,6 +68,25 @@ export async function listItems(filter: ItemFilter): Promise<Item[]> {
  */
 export async function getItem(code: string): Promise<Item> {
   const res = await request<{ item: Item }>(`/api/items/${encodeURIComponent(code)}`)
+  return res.item
+}
+
+/**
+ * updateItem は備品の内容を差し替える。admin のみ。
+ *
+ * 全項目を送る。備品コードは送らない（変更できない）。
+ *
+ * 廃棄も状態の1つとしてここで指定する。専用の
+ * `POST /api/items/{code}/discard` は使わない。更新が全項目を送る形である
+ * 以上、状態だけ別経路にすると、__廃棄済みの備品を編集した時に__
+ * __状態を送り戻して復活させてしまう__ 経路ができる。
+ */
+export async function updateItem(code: string, attrs: ItemAttributes): Promise<Item> {
+  const res = await requestJSON<{ item: Item }>(
+    `/api/items/${encodeURIComponent(code)}`,
+    'PUT',
+    attrs,
+  )
   return res.item
 }
 
