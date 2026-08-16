@@ -73,7 +73,8 @@ curl http://localhost:8080/healthz
 | コンテナ内シェル | `make sh` | `.\make.ps1 sh` |
 | ログ | `make logs` | `.\make.ps1 logs` |
 | フォーマット | `make fmt` | `.\make.ps1 fmt` |
-| テスト | `make test` | `.\make.ps1 test` |
+| テスト（Go） | `make test` | `.\make.ps1 test` |
+| テスト（フロント） | `make test-web` | `.\make.ps1 test-web` |
 
 コンテナ内では `go` も `npm` もそのまま使える。
 
