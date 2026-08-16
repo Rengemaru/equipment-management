@@ -34,6 +34,55 @@ export type User = {
 }
 
 /**
+ * CONDITIONS は状態の全て。DBの CHECK 制約・Go の `item.Condition` と対。
+ *
+ * 型と選択肢を1つの定義から作る。別々に書くと、値を足した時に
+ * 型は通るのに選択肢に出ない、という気付きにくいずれ方をする。
+ */
+export const CONDITIONS = ['良好', '要修理', '廃棄'] as const
+export type Condition = (typeof CONDITIONS)[number]
+
+/**
+ * LOCATION_STATUSES は所在の全て。貸出状態とは独立で、
+ * 「貸出中かつ所在不明」も起こり得る。
+ *
+ * `所在不明_未確認` をまとめて「所在不明」と表示しない。記録されなかった
+ * 事実を確かなものとして見せないため、不確かさを残したまま出す（CLAUDE.md）。
+ */
+export const LOCATION_STATUSES = ['在庫', '所在不明_未確認', '所在不明_確定'] as const
+export type LocationStatus = (typeof LOCATION_STATUSES)[number]
+
+/** Owner は所有区分。 */
+export type Owner = 'サークル' | '学科'
+
+/** Item は1件の備品。 */
+export type Item = {
+  id: number
+  code: string
+  name: string
+
+  category: string
+  model: string
+  owner: Owner
+
+  /**
+   * is_free_use は記録不要の自由利用品。貸出フローの対象外にする。
+   * 追跡対象を減らすことが遵守率を上げる最短経路（CLAUDE.md）。
+   */
+  is_free_use: boolean
+
+  location: string
+  condition: Condition
+  location_status: LocationStatus
+
+  /** photo_url は写真の取得先。無ければ空文字。 */
+  photo_url: string
+
+  note: string
+  updated_at: string
+}
+
+/**
  * AuthResponse は `/api/login` `/api/me` `/api/password` が返す共通の形。
  *
  * redirect_to は検証済みの自サイト内パス。`next` の解釈はサーバが行うため、

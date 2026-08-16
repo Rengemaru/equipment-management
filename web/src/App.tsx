@@ -1,6 +1,7 @@
 import { Link, Route, Routes } from 'react-router'
 
 import { RequireAuth } from './auth/RequireAuth'
+import Items from './screens/Items'
 import Login from './screens/Login'
 import PasswordChange from './screens/PasswordChange'
 
@@ -30,6 +31,15 @@ export default function App() {
       />
 
       <Route
+        path="/items"
+        element={
+          <RequireAuth>
+            <Items />
+          </RequireAuth>
+        }
+      />
+
+      <Route
         path="/"
         element={
           <RequireAuth>
@@ -44,10 +54,18 @@ export default function App() {
   )
 }
 
+/**
+ * Home はトップ。M1では備品一覧へのリンクだけを置く（m1-spec §7）。
+ *
+ * 貸出中一覧や自分の貸出はM2で作る。先に置くと、押せない項目が並ぶ。
+ */
 function Home() {
   return (
     <main className="mx-auto max-w-screen-sm p-4">
       <h1 className="text-xl font-bold">備品管理</h1>
+      <Link className="mt-4 inline-block text-blue-700 underline" to="/items">
+        備品一覧
+      </Link>
     </main>
   )
 }

@@ -24,13 +24,16 @@ export function errorResponse(message: string, status: number, code?: string): R
 /**
  * stubFetch は経路ごとの応答を差し替える。
  *
+ * 鍵はクエリ文字列を除いたパス。条件の組み合わせごとに鍵を書くことになると、
+ * 絞り込みのテストが書けない。送ったクエリは戻り値の mock.calls で確かめる。
+ *
  * 書き忘れた経路は 599 として返す。例外として投げると、クライアントが
  * 「通信できなかった」に変換してしまい、経路の書き忘れが
  * ネットワーク障害のテストに化ける。
  */
 export function stubFetch(routes: Record<string, () => Response>) {
   const fn = vi.fn(async (path: string, _init?: RequestInit) => {
-    const route = routes[path]
+    const route = routes[path.split('?')[0] ?? path]
     if (!route) {
       return jsonResponse({ error: `想定していない経路: ${path}` }, 599)
     }

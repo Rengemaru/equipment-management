@@ -10,12 +10,18 @@ afterEach(() => {
 
 const taro = { id: 1, name: '田中', login_id: 'taro', role: 'member', must_change_password: false }
 
-test('ログイン済みならトップが表示される', async () => {
+// M1のトップは備品一覧へのリンクだけ（m1-spec §7）。貸出まわりはM2で作る。
+// 先に置くと、押せない項目が並ぶ。
+test('ログイン済みならトップから備品一覧へ行ける', async () => {
   stubFetch({ '/api/me': () => jsonResponse({ user: taro, redirect_to: '/' }) })
 
   renderApp('/')
 
   expect(await screen.findByRole('heading', { name: '備品管理' })).toBeDefined()
+  expect(screen.getByRole('link', { name: '備品一覧' })).toHaveProperty(
+    'href',
+    expect.stringContaining('/items'),
+  )
 })
 
 // 知らないURLで白い画面になると、QRを読み間違えた人には
