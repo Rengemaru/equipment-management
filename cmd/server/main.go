@@ -27,6 +27,7 @@ import (
 	"github.com/Rengemaru/equipment-management/internal/db"
 	"github.com/Rengemaru/equipment-management/internal/httpx"
 	"github.com/Rengemaru/equipment-management/internal/item"
+	"github.com/Rengemaru/equipment-management/web"
 )
 
 func main() {
@@ -108,6 +109,17 @@ func runServer(ctx context.Context, cfg *config.Config, sqldb *sql.DB) error {
 	}
 	item.NewHandler(item.NewStore(sqldb), photos, cfg.HostURL, authHandler.RequireLogin, authHandler.RequireAdmin).Register(mux)
 
+	// 登録の無い /api/ は JSON で404を返す。これが無いと下の "/" に落ち、
+	// 綴りを間違えたAPIが index.html を返す。フロントは200のHTMLをJSONとして
+	// 読もうとし、原因が経路の誤りだと分からなくなる。
+	mux.Handle("/api/", httpx.APINotFoundHandler())
+
+	// 残り全部がフロント。画面の経路はブラウザ側のルータが持つため、
+	// 知らないパスでも index.html を返す（/i/0042 を直接開いた時に404にしない）。
+	if err := registerFrontend(mux); err != nil {
+		return err
+	}
+
 	// /healthz は Compose のヘルスチェックが数秒ごとに叩く。
 	// 成功している間はログに出さない。出すと本当に見たい行が流れる。
 	handler := httpx.NewHandler(mux, log.Default(), "/healthz")
@@ -143,6 +155,36 @@ func runServer(ctx context.Context, cfg *config.Config, sqldb *sql.DB) error {
 	}
 
 	log.Print("stopped")
+	return nil
+}
+
+// registerFrontend は組み込んだフロントを "/" に割り当てる。
+//
+// フロントが入っていなくても起動は止めない。`-create-admin` の直後や、
+// APIだけを確かめたい時に、画面が無いというだけで起動できないのは不便すぎる。
+// 代わりに、何をすればよいかを返すハンドラを置いてログに残す。
+func registerFrontend(mux *http.ServeMux) error {
+	dist, err := web.Dist()
+	if err != nil {
+		return fmt.Errorf("フロントエンド: %w", err)
+	}
+
+	spa, err := httpx.SPAHandler(dist)
+	if err != nil {
+		if !errors.Is(err, httpx.ErrNoFrontend) {
+			return fmt.Errorf("フロントエンド: %w", err)
+		}
+
+		log.Print("warning: フロントエンドが組み込まれていない（web/ で npm run build を実行すること）")
+		mux.Handle("/", httpx.NoFrontendHandler())
+		return nil
+	}
+
+	// "GET /" では登録できない。ServeMux が "/api/"（全メソッド）との
+	// 組み合わせを曖昧と見なして起動時に panic する
+	// （"matches fewer methods but has a more general path pattern"）。
+	// メソッドの絞り込みはハンドラ側で行う。
+	mux.Handle("/", spa)
 	return nil
 }
 

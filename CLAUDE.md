@@ -627,7 +627,15 @@ DTO を介して変換する。スキーマ変更が即 API の破壊になら�
       **クリップボードAPIを使わない。** HTTP運用だと動かず、押しても何も起きないボタンになる）
 
 **仕上げ**
-- [ ] フロントのビルド成果物を Go バイナリに `embed`（**単一バイナリで起動する**）
+- [x] フロントのビルド成果物を Go バイナリに `embed`（**単一バイナリで起動する**）
+      （`web/embed.go` に `//go:embed all:dist`。**`web/dist/.gitkeep` をコミットする。**
+      dist が空だと「contains no embeddable files」で `go build` が落ちる。
+      `vite build` が dist を空にするため、`npm run build` の `postbuild` で作り直す。
+      経路は `"/"`（全メソッド）で登録する。`"GET /"` にすると `"/api/"` との
+      組み合わせを ServeMux が曖昧と見なして**起動時に panic する**。
+      **知らないパスは index.html を返す**（`/i/0042` を直接開けるようにする）が、
+      **拡張子があるものは404**（HTMLをJSとして読ませない）。
+      **未知の `/api/` は JSON で404**（HTMLを返すと原因が分からなくなる））
 - [ ] `-backup` サブコマンド（`VACUUM INTO`。**本番イメージには `sqlite3` もシェルも無い前提**）
 - [ ] Dockerfile に build / runtime ステージを追加（Nodeビルド → Goビルド → 最小実行イメージ）
 - [ ] `compose.yaml`（アプリ1サービス、名前付きボリューム、`restart: unless-stopped`、ヘルスチェック）

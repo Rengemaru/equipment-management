@@ -1,7 +1,13 @@
 # === ビルド成果物 ===
 /bin/
 /dist/
-web/dist/
+
+# フロントのビルド成果物。中身はコミットしないが、__ディレクトリは残す。__
+# Go が go:embed で取り込むため、空でも存在しないと `go build` が落ちる
+# （「contains no embeddable files」）。.gitkeep は npm run build の
+# postbuild で作り直す（vite build が dist を空にするため）。
+web/dist/*
+!web/dist/.gitkeep
 *.exe
 *.exe~
 # コンテナ内で `go build` すると拡張子の無い Linux バイナリが
