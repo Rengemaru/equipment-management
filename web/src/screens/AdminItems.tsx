@@ -73,6 +73,9 @@ export default function AdminItems() {
         <Link className="text-blue-700 underline" to="/admin/items/import">
           CSVで一括登録
         </Link>
+        <Link className="text-blue-700 underline" to="/admin/labels">
+          QRラベルの印刷
+        </Link>
       </div>
 
       <form
