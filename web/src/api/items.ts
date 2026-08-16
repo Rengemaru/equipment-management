@@ -48,6 +48,19 @@ export async function listItems(filter: ItemFilter): Promise<Item[]> {
   return res.items
 }
 
+/**
+ * getItem は備品コードで1件を引く。
+ *
+ * 廃棄済みも引ける。一覧からは除かれるが、__ラベルは貼られたままなので__
+ * QRを読めばここに来る。引けないと「読み取れない壊れたラベル」に見える。
+ *
+ * 登録が無ければ 404 の ApiError を投げる。
+ */
+export async function getItem(code: string): Promise<Item> {
+  const res = await request<{ item: Item }>(`/api/items/${encodeURIComponent(code)}`)
+  return res.item
+}
+
 /** itemFilters は実際に使われている分類と保管場所を返す。 */
 export async function itemFilters(): Promise<FilterOptions> {
   return request<FilterOptions>('/api/items/filters')

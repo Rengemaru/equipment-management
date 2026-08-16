@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { useSearchParams } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 
 import { errorMessage } from '../api/client'
 import { itemFilters, listItems } from '../api/items'
@@ -186,29 +186,30 @@ export default function Items() {
 /**
  * ItemRow は1件分の表示。
  *
- * 詳細（`/i/{code}`）へのリンクはまだ置かない。画面が無いうちにリンクを
- * 置くと、押した人には「壊れている」としか見えない（CLAUDE.md）。
- * __`/i/{code}` を作る時にここへリンクを足すこと。__
+ * 行全体をリンクにする。指で押す的が小さいと、スマートフォンでは
+ * 隣の行を開くことになる。
  */
 function ItemRow({ item }: { item: Item }) {
   return (
-    <li className="py-3">
-      <div className="flex items-baseline gap-2">
-        {/* 備品コードは等幅で出す。棚に貼ったラベルと見比べるため。 */}
-        <span className="font-mono text-sm text-gray-600">{item.code}</span>
-        <span className="font-medium">{item.name}</span>
-      </div>
+    <li>
+      <Link className="block py-3" to={`/i/${item.code}`}>
+        <div className="flex items-baseline gap-2">
+          {/* 備品コードは等幅で出す。棚に貼ったラベルと見比べるため。 */}
+          <span className="font-mono text-sm text-gray-600">{item.code}</span>
+          <span className="font-medium text-blue-800 underline">{item.name}</span>
+        </div>
 
-      <p className="mt-0.5 text-sm text-gray-600">
-        {[item.category, item.model, item.location].filter((v) => v !== '').join('・')}
-      </p>
+        <p className="mt-0.5 text-sm text-gray-600">
+          {[item.category, item.model, item.location].filter((v) => v !== '').join('・')}
+        </p>
 
-      <div className="mt-1 flex flex-wrap gap-1">
-        {/* 良好・在庫は出さない。全ての行に付くと、注意すべき行が埋もれる。 */}
-        {item.condition !== '良好' && <Badge tone="warn">{item.condition}</Badge>}
-        {item.location_status !== '在庫' && <Badge tone="warn">{item.location_status}</Badge>}
-        {item.is_free_use && <Badge tone="info">自由利用品</Badge>}
-      </div>
+        <div className="mt-1 flex flex-wrap gap-1">
+          {/* 良好・在庫は出さない。全ての行に付くと、注意すべき行が埋もれる。 */}
+          {item.condition !== '良好' && <Badge tone="warn">{item.condition}</Badge>}
+          {item.location_status !== '在庫' && <Badge tone="warn">{item.location_status}</Badge>}
+          {item.is_free_use && <Badge tone="info">自由利用品</Badge>}
+        </div>
+      </Link>
     </li>
   )
 }

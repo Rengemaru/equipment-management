@@ -62,6 +62,20 @@ test('一覧を表示する', async () => {
   expect(screen.getByText('2件')).toBeDefined()
 })
 
+// 行全体をリンクにする。指で押す的が小さいと、スマートフォンでは
+// 隣の行を開くことになる。
+test('各行から詳細へ行ける', async () => {
+  stubFetch(routes([item({ code: '0042' })]))
+
+  renderApp('/items')
+  const list = within(await screen.findByRole('list'))
+
+  expect(list.getByRole('link', { name: /三脚/ })).toHaveProperty(
+    'href',
+    expect.stringContaining('/i/0042'),
+  )
+})
+
 // 備品コードは棚に貼ったラベルと見比べるためのもの。品名と並べて出す。
 test('備品コードと分類・保管場所を出す', async () => {
   stubFetch(routes([item({})]))

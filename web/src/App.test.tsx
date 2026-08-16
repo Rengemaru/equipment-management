@@ -24,12 +24,13 @@ test('ログイン済みならトップから備品一覧へ行ける', async ()
   )
 })
 
-// 知らないURLで白い画面になると、QRを読み間違えた人には
-// 「壊れている」としか見えない。
+// 知らないURLで白い画面を出さない。
+// 備品コードの誤りは /i/{code} 側が扱う（ItemDetail のテスト）。
+// ここに来るのは、URLそのものが変わった・打ち間違えた場合。
 test('割り当てのないURLは見つからないと表示する', async () => {
   stubFetch({ '/api/me': () => errorResponse('ログインしてください', 401) })
 
-  renderApp('/i/0042')
+  renderApp('/loans')
 
   expect(await screen.findByRole('heading', { name: 'ページが見つかりません' })).toBeDefined()
   expect(screen.getByRole('link', { name: 'トップへ' })).toBeDefined()

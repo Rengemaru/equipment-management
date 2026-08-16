@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { Navigate, useNavigate, useSearchParams } from 'react-router'
+import { Navigate, useSearchParams } from 'react-router'
 
 import { errorMessage } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
@@ -14,7 +14,6 @@ import { useAuth } from '../auth/AuthProvider'
  */
 export default function Login() {
   const auth = useAuth()
-  const navigate = useNavigate()
   const [params] = useSearchParams()
 
   const [loginID, setLoginID] = useState('')
@@ -22,13 +21,28 @@ export default function Login() {
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
+  /**
+   * redirectTo はログインが成功した後に進む先。
+   *
+   * navigate() を呼ぶのではなく状態に持つ。ログインが成功すると
+   * auth.status も authenticated になるため、命令的に呼ぶと
+   * __下の「ログイン済みならトップへ」と競り、先に描画された方が勝つ。__
+   * QRから来た人がトップへ放り出されるのはこれが原因になる。
+   */
+  const [redirectTo, setRedirectTo] = useState('')
+
+  // 自分のログインで得た行き先を先に見る。順序を逆にすると常にトップへ飛ぶ。
+  if (redirectTo !== '') {
+    return <Navigate to={redirectTo} replace />
+  }
+
   // 確認が終わる前にフォームを出さない。出すと、ログイン済みの人に
   // 一瞬フォームが見えてから消えることになる。
   if (auth.status === 'loading') {
     return <main className="mx-auto max-w-screen-sm p-4">確認しています…</main>
   }
 
-  // ログイン済みなら用がない。next は使わない。ログイン済みの利用者が
+  // 元からログイン済みなら用がない。next は使わない。ログイン済みの利用者が
   // QRを読んだ場合は /login を通らず目的のページへ直接来る。
   if (auth.status === 'authenticated') {
     return <Navigate to="/" replace />
@@ -40,8 +54,7 @@ export default function Login() {
     setSubmitting(true)
 
     try {
-      const redirectTo = await auth.login(loginID, password, params.get('next') ?? '')
-      navigate(redirectTo, { replace: true })
+      setRedirectTo(await auth.login(loginID, password, params.get('next') ?? ''))
     } catch (err) {
       setError(errorMessage(err))
       // 成功した時は画面ごと入れ替わるため、ここでだけ戻す。

@@ -1,6 +1,7 @@
 import { Link, Route, Routes } from 'react-router'
 
 import { RequireAuth } from './auth/RequireAuth'
+import ItemDetail from './screens/ItemDetail'
 import Items from './screens/Items'
 import Login from './screens/Login'
 import PasswordChange from './screens/PasswordChange'
@@ -35,6 +36,17 @@ export default function App() {
         element={
           <RequireAuth>
             <Items />
+          </RequireAuth>
+        }
+      />
+
+      {/* QRの遷移先。__この経路は変えられない。__ ラベルは貼り替えられない
+          ため、URLを変えると印刷済みのQRが全て読めなくなる（url-design.md §1）。 */}
+      <Route
+        path="/i/:code"
+        element={
+          <RequireAuth>
+            <ItemDetail />
           </RequireAuth>
         }
       />
