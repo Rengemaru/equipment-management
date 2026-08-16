@@ -1,32 +1,11 @@
 import { afterEach, expect, test, vi } from 'vitest'
 
+import { jsonResponse, stubFetch } from '../testing/fetchStub'
 import { ApiError, onSessionExpired, request, requestJSON } from './client'
 
 afterEach(() => {
   vi.unstubAllGlobals()
 })
-
-/** stubFetch は経路ごとの応答を差し替える。 */
-function stubFetch(routes: Record<string, () => Response>) {
-  const fn = vi.fn(async (path: string, _init?: RequestInit) => {
-    const route = routes[path]
-    if (!route) {
-      // 経路を書き忘れたテストが「通信できなかった」に化けないよう、
-      // 応答として返す。ApiError の message に経路が出る。
-      return new Response(JSON.stringify({ error: `想定していない経路: ${path}` }), { status: 599 })
-    }
-    return route()
-  })
-  vi.stubGlobal('fetch', fn)
-  return fn
-}
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  })
-}
 
 test('成功した応答を JSON として返す', async () => {
   stubFetch({ '/api/me': () => jsonResponse({ user: { name: '田中' } }) })
@@ -105,6 +84,23 @@ test('401 を受け取ると登録した関数を呼ぶ', async () => {
   await expect(request('/api/items')).rejects.toThrow()
 
   expect(listener).toHaveBeenCalledTimes(1)
+  unsubscribe()
+})
+
+// ログインとパスワード変更の 401 は「入力が違う」であって
+// 「セッションが切れた」ではない。区別しないと、現在のパスワードを
+// 打ち間違えた人がその場でログアウトさせられる。
+test('資格情報を検証する経路の401ではセッション切れにしない', async () => {
+  stubFetch({ '/api/password': () => jsonResponse({ error: '現在のパスワードが違います' }, 401) })
+
+  const listener = vi.fn()
+  const unsubscribe = onSessionExpired(listener)
+
+  await expect(
+    request('/api/password', { method: 'POST' }, { verifiesCredentials: true }),
+  ).rejects.toThrow()
+
+  expect(listener).not.toHaveBeenCalled()
   unsubscribe()
 })
 

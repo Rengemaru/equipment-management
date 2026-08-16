@@ -3,34 +3,12 @@ import { useState } from 'react'
 import { afterEach, expect, test, vi } from 'vitest'
 
 import { request } from '../api/client'
+import { jsonResponse, stubFetch } from '../testing/fetchStub'
 import { AuthProvider, useAuth } from './AuthProvider'
 
 afterEach(() => {
   vi.unstubAllGlobals()
 })
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  })
-}
-
-/** stubFetch は経路ごとの応答を差し替える。 */
-function stubFetch(routes: Record<string, () => Response>) {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (path: string) => {
-      const route = routes[path]
-      if (!route) {
-        return new Response(JSON.stringify({ error: `想定していない経路: ${path}` }), {
-          status: 599,
-        })
-      }
-      return route()
-    }),
-  )
-}
 
 const taro = { id: 1, name: '田中', login_id: 'taro', role: 'member', must_change_password: false }
 

@@ -36,6 +36,19 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * errorMessage は画面に出してよい文言を取り出す。
+ *
+ * catch した値は unknown で、ApiError とは限らない（コードの誤りで
+ * TypeError が飛ぶこともある）。画面ごとに instanceof を書かせない。
+ */
+export function errorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    return err.message
+  }
+  return '予期しない問題が起きました'
+}
+
 /** SessionExpiredListener はセッションが切れたことを受け取る。 */
 type SessionExpiredListener = () => void
 
@@ -55,13 +68,29 @@ export function onSessionExpired(listener: SessionExpiredListener): () => void {
   }
 }
 
+/** RequestOptions は経路ごとの扱いの違い。 */
+export type RequestOptions = {
+  /**
+   * verifiesCredentials は、本文で送った資格情報そのものを検証する経路か。
+   *
+   * ログインとパスワード変更が該当する。この2つの 401 は「入力した
+   * パスワードが違う」であって「セッションが切れた」ではない。
+   * 区別しないと、__現在のパスワードを打ち間違えた人がログアウトさせられる。__
+   */
+  verifiesCredentials?: boolean
+}
+
 /**
  * request は API を呼び、JSON を返す。
  *
  * 失敗は全て ApiError として投げる。戻り値で成否を返す形にすると、
  * 呼び出し側が確認を忘れた時に、エラーの本文を成功データとして扱ってしまう。
  */
-export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export async function request<T>(
+  path: string,
+  init?: RequestInit,
+  opts: RequestOptions = {},
+): Promise<T> {
   let res: Response
   try {
     res = await fetch(path, {
@@ -80,9 +109,7 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     const err = await toApiError(res)
 
-    // ログイン画面で誤ったパスワードを送った時もここを通る。
-    // 未ログインの利用者に対しては、受け取る側が何もしない作りにしてある。
-    if (res.status === 401) {
+    if (res.status === 401 && !opts.verifiesCredentials) {
       notifySessionExpired()
     }
 
@@ -98,12 +125,21 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
  * サーバは知らない項目を 400 で弾く（`httpx.DecodeJSON` の
  * DisallowUnknownFields）。綴り違いは黙って無視されず、その場で分かる。
  */
-export function requestJSON<T>(path: string, method: string, body: unknown): Promise<T> {
-  return request<T>(path, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
+export function requestJSON<T>(
+  path: string,
+  method: string,
+  body: unknown,
+  opts?: RequestOptions,
+): Promise<T> {
+  return request<T>(
+    path,
+    {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+    opts,
+  )
 }
 
 /** notifySessionExpired は登録された関数を全て呼ぶ。 */

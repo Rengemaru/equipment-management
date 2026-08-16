@@ -1,29 +1,30 @@
-import { render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router'
-import { expect, test } from 'vitest'
+import { screen } from '@testing-library/react'
+import { afterEach, expect, test, vi } from 'vitest'
 
-import App from './App'
+import { errorResponse, jsonResponse, stubFetch } from './testing/fetchStub'
+import { renderApp } from './testing/renderApp'
 
-// MemoryRouter を使うのは、テストがブラウザのURLに依存しないようにするため。
-function renderAt(path: string) {
-  render(
-    <MemoryRouter initialEntries={[path]}>
-      <App />
-    </MemoryRouter>,
-  )
-}
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
-test('トップを開くと表示される', () => {
-  renderAt('/')
+const taro = { id: 1, name: '田中', login_id: 'taro', role: 'member', must_change_password: false }
 
-  expect(screen.getByRole('heading', { name: '備品管理' })).toBeDefined()
+test('ログイン済みならトップが表示される', async () => {
+  stubFetch({ '/api/me': () => jsonResponse({ user: taro, redirect_to: '/' }) })
+
+  renderApp('/')
+
+  expect(await screen.findByRole('heading', { name: '備品管理' })).toBeDefined()
 })
 
 // 知らないURLで白い画面になると、QRを読み間違えた人には
 // 「壊れている」としか見えない。
-test('割り当てのないURLは見つからないと表示する', () => {
-  renderAt('/i/0042')
+test('割り当てのないURLは見つからないと表示する', async () => {
+  stubFetch({ '/api/me': () => errorResponse('ログインしてください', 401) })
 
-  expect(screen.getByRole('heading', { name: 'ページが見つかりません' })).toBeDefined()
+  renderApp('/i/0042')
+
+  expect(await screen.findByRole('heading', { name: 'ページが見つかりません' })).toBeDefined()
   expect(screen.getByRole('link', { name: 'トップへ' })).toBeDefined()
 })

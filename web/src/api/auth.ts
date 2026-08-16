@@ -17,11 +17,13 @@ import type { AuthResponse } from './types'
  * もう一度QRを読み直させることになり、その一手間が記録漏れに直結する。
  */
 export function login(loginID: string, password: string, next: string): Promise<AuthResponse> {
-  return requestJSON<AuthResponse>('/api/login', 'POST', {
-    login_id: loginID,
-    password,
-    next,
-  })
+  return requestJSON<AuthResponse>(
+    '/api/login',
+    'POST',
+    { login_id: loginID, password, next },
+    // ここの 401 は「IDかパスワードが違う」。セッション切れとして扱わない。
+    { verifiesCredentials: true },
+  )
 }
 
 /**
@@ -53,8 +55,12 @@ export function changePassword(
   currentPassword: string,
   newPassword: string,
 ): Promise<AuthResponse> {
-  return requestJSON<AuthResponse>('/api/password', 'POST', {
-    current_password: currentPassword,
-    new_password: newPassword,
-  })
+  return requestJSON<AuthResponse>(
+    '/api/password',
+    'POST',
+    { current_password: currentPassword, new_password: newPassword },
+    // ここの 401 は「現在のパスワードが違う」。セッションは生きている。
+    // 区別しないと、打ち間違えた人がその場でログアウトさせられる。
+    { verifiesCredentials: true },
+  )
 }
