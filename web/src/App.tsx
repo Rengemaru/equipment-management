@@ -5,6 +5,7 @@ import { RequireAdmin } from './auth/RequireAdmin'
 import { RequireAuth } from './auth/RequireAuth'
 import AdminItemNew from './screens/AdminItemNew'
 import AdminItems from './screens/AdminItems'
+import AdminItemsImport from './screens/AdminItemsImport'
 import ItemDetail from './screens/ItemDetail'
 import Items from './screens/Items'
 import Login from './screens/Login'
@@ -79,6 +80,15 @@ export default function App() {
         element={
           <RequireAdmin>
             <AdminItemNew />
+          </RequireAdmin>
+        }
+      />
+
+      <Route
+        path="/admin/items/import"
+        element={
+          <RequireAdmin>
+            <AdminItemsImport />
           </RequireAdmin>
         }
       />

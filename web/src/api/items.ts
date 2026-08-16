@@ -6,7 +6,7 @@
  */
 
 import { request, requestJSON } from './client'
-import type { Condition, Item, ItemAttributes, LocationStatus } from './types'
+import type { Condition, Item, ItemAttributes, LocationStatus, Owner } from './types'
 
 /**
  * ItemFilter は一覧の絞り込み。空の項目は条件にしない。
@@ -119,6 +119,102 @@ export async function updateItem(code: string, attrs: ItemAttributes): Promise<I
     attrs,
   )
   return res.item
+}
+
+/**
+ * ImportRow は取り込む1行。
+ *
+ * 空欄に既定値を入れた後の値。CSVに書いてある通りではなく、実際に登録される
+ * 内容を見せる。確定してから「状態が勝手に良好になった」と言われる形にしない。
+ */
+export type ImportRow = {
+  /** line はCSV上の行番号。ヘッダを1行目として数える（表計算ソフトと同じ）。 */
+  line: number
+
+  /** quantity はこの行から作るレコード数。1行が数量の数だけの備品になる。 */
+  quantity: number
+
+  name: string
+  category: string
+  model: string
+  owner: Owner
+  is_free_use: boolean
+  location: string
+  condition: Condition
+  note: string
+}
+
+/** ImportRowError は1行の誤り。 */
+export type ImportRowError = {
+  line: number
+  message: string
+}
+
+/** ImportPreview は取り込む前に見せる内容。 */
+export type ImportPreview = {
+  row_count: number
+  record_count: number
+
+  /** can_import は確定に進めるか。誤りが1件でもあれば false。 */
+  can_import: boolean
+
+  /**
+   * code_from と code_to は採番の__予定__。確定に進めない間は空。
+   *
+   * プレビューと確定の間に別の登録が入れば後ろにずれる。決まった値として
+   * 見せないこと。この範囲でラベルを刷る人が出る。
+   */
+  code_from: string
+  code_to: string
+
+  rows: ImportRow[]
+  errors: ImportRowError[]
+}
+
+/** ImportResult は取り込みの結果。コードは予定ではなく確定した値。 */
+export type ImportResult = {
+  record_count: number
+  code_from: string
+  code_to: string
+}
+
+/**
+ * previewImport はCSVを解析し、取り込んだら何が起きるかを返す。admin のみ。
+ *
+ * 何度呼んでも備品コードを消費しない。採番は確定の時に行われる。
+ */
+export async function previewImport(file: File): Promise<ImportPreview> {
+  const form = new FormData()
+  form.set('file', file)
+
+  const res = await request<{ preview: ImportPreview }>('/api/items/import/preview', {
+    method: 'POST',
+    body: form,
+  })
+  return res.preview
+}
+
+/**
+ * importItems はCSVを取り込む。admin のみ。全件成功か全件失敗。
+ *
+ * プレビューと同じファイルを送り直す。サーバは解析結果を覚えていない。
+ *
+ * excludeLines はプレビューが返した行番号。__指定した行がCSVに無ければ__
+ * __取り込まれない（400）。__ 黙って無視すると、行がずれたCSVで記入例が入り、
+ * 備品コードを戻せなくなる。
+ */
+export async function importItems(file: File, excludeLines: number[]): Promise<ImportResult> {
+  const form = new FormData()
+  form.set('file', file)
+  for (const line of excludeLines) {
+    form.append('exclude_lines', String(line))
+  }
+
+  const res = await request<{ result: ImportResult }>('/api/items/import', {
+    method: 'POST',
+    body: form,
+  })
+  return res.result
 }
 
 /** itemFilters は実際に使われている分類と保管場所を返す。 */

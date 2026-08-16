@@ -66,12 +66,14 @@ export default function AdminItems() {
     <main className="mx-auto max-w-screen-sm p-4">
       <h1 className="text-xl font-bold">備品マスタ管理</h1>
 
-      <Link
-        className="mt-3 inline-block rounded bg-blue-700 px-4 py-2 text-white"
-        to="/admin/items/new"
-      >
-        備品を登録
-      </Link>
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <Link className="rounded bg-blue-700 px-4 py-2 text-white" to="/admin/items/new">
+          備品を登録
+        </Link>
+        <Link className="text-blue-700 underline" to="/admin/items/import">
+          CSVで一括登録
+        </Link>
+      </div>
 
       <form
         className="mt-4"
