@@ -72,6 +72,37 @@ export async function getItem(code: string): Promise<Item> {
 }
 
 /**
+ * createItem は備品を1件登録する。admin のみ。
+ *
+ * **備品コードは送らない。** システムが `0001` 形式で自動採番する。
+ * 人手で振らせると抜け・重複が必ず起きる（CLAUDE.md）。サーバも
+ * コードが入っていれば 400 で弾く。採番された値は戻り値で分かる。
+ */
+export async function createItem(attrs: ItemAttributes): Promise<Item> {
+  const res = await requestJSON<{ item: Item }>('/api/items', 'POST', attrs)
+  return res.item
+}
+
+/**
+ * uploadPhoto は写真を添付する。admin のみ。差し替えも同じ経路。
+ *
+ * 備品が登録済みでないと呼べない。登録より先に写真だけを送る経路は無い。
+ *
+ * Content-Type を自分で指定しないこと。FormData を渡すとブラウザが
+ * 境界文字列付きで組み立てる。手で書くと境界がずれ、サーバが本文を読めない。
+ */
+export async function uploadPhoto(code: string, file: File): Promise<Item> {
+  const form = new FormData()
+  form.set('photo', file)
+
+  const res = await request<{ item: Item }>(`/api/items/${encodeURIComponent(code)}/photo`, {
+    method: 'POST',
+    body: form,
+  })
+  return res.item
+}
+
+/**
  * updateItem は備品の内容を差し替える。admin のみ。
  *
  * 全項目を送る。備品コードは送らない（変更できない）。

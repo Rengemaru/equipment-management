@@ -4,8 +4,8 @@ import { Link, useSearchParams } from 'react-router'
 
 import { errorMessage } from '../api/client'
 import { listItems, updateItem } from '../api/items'
-import { CONDITIONS, LOCATION_STATUSES, OWNERS } from '../api/types'
 import type { Item, ItemAttributes } from '../api/types'
+import { ItemFields } from '../ui/ItemFields'
 
 /**
  * AdminItems は備品マスタの管理画面（運営のみ）。
@@ -65,6 +65,13 @@ export default function AdminItems() {
   return (
     <main className="mx-auto max-w-screen-sm p-4">
       <h1 className="text-xl font-bold">備品マスタ管理</h1>
+
+      <Link
+        className="mt-3 inline-block rounded bg-blue-700 px-4 py-2 text-white"
+        to="/admin/items/new"
+      >
+        備品を登録
+      </Link>
 
       <form
         className="mt-4"
@@ -193,10 +200,6 @@ function EditForm({
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
-  const set = <K extends keyof ItemAttributes>(key: K, value: ItemAttributes[K]) => {
-    setAttrs((prev) => ({ ...prev, [key]: value }))
-  }
-
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setError('')
@@ -212,66 +215,9 @@ function EditForm({
 
   return (
     <form className="mt-3 space-y-3 rounded border border-gray-300 p-3" onSubmit={(e) => void handleSubmit(e)}>
-      <Text id={`name-${item.code}`} label="品名" value={attrs.name} onChange={(v) => set('name', v)} required />
-      <Text
-        id={`category-${item.code}`}
-        label="分類"
-        value={attrs.category}
-        onChange={(v) => set('category', v)}
-      />
-      <Text id={`model-${item.code}`} label="型番" value={attrs.model} onChange={(v) => set('model', v)} />
-      <Text
-        id={`location-${item.code}`}
-        label="保管場所"
-        value={attrs.location}
-        onChange={(v) => set('location', v)}
-      />
-
-      <Choice
-        id={`owner-${item.code}`}
-        label="所有"
-        value={attrs.owner}
-        options={OWNERS}
-        onChange={(v) => set('owner', v as ItemAttributes['owner'])}
-      />
-      {/* 廃棄もここで指定する。状態の1つであって削除ではない。 */}
-      <Choice
-        id={`condition-${item.code}`}
-        label="状態"
-        value={attrs.condition}
-        options={CONDITIONS}
-        onChange={(v) => set('condition', v as ItemAttributes['condition'])}
-      />
-      <Choice
-        id={`location_status-${item.code}`}
-        label="所在"
-        value={attrs.location_status}
-        options={LOCATION_STATUSES}
-        onChange={(v) => set('location_status', v as ItemAttributes['location_status'])}
-      />
-
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          className="size-4"
-          checked={attrs.is_free_use}
-          onChange={(e) => set('is_free_use', e.target.checked)}
-        />
-        自由利用品にする（貸出の記録を求めない）
-      </label>
-
-      <div>
-        <label className="block text-sm font-medium" htmlFor={`note-${item.code}`}>
-          備考
-        </label>
-        <textarea
-          id={`note-${item.code}`}
-          rows={2}
-          className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-base"
-          value={attrs.note}
-          onChange={(e) => set('note', e.target.value)}
-        />
-      </div>
+      {/* 入力欄は登録フォームと同じものを使う。別々に書くと、項目を足した時に
+          片方だけ直され、経路によって入る値が変わる。 */}
+      <ItemFields attrs={attrs} onChange={setAttrs} idPrefix={item.code} />
 
       {error !== '' && (
         <p role="alert" className="text-sm text-red-700">
@@ -316,68 +262,4 @@ function toAttributes(item: Item): ItemAttributes {
 
 function Badge({ children }: { children: string }) {
   return <span className="rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-900">{children}</span>
-}
-
-function Text({
-  id,
-  label,
-  value,
-  onChange,
-  required,
-}: {
-  id: string
-  label: string
-  value: string
-  onChange: (value: string) => void
-  required?: boolean
-}) {
-  return (
-    <div>
-      <label className="block text-sm font-medium" htmlFor={id}>
-        {label}
-      </label>
-      <input
-        id={id}
-        required={required}
-        // text-base（16px）未満だと iOS が焦点を当てた瞬間に拡大する。
-        className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-base"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      />
-    </div>
-  )
-}
-
-function Choice({
-  id,
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  id: string
-  label: string
-  value: string
-  options: readonly string[]
-  onChange: (value: string) => void
-}) {
-  return (
-    <div>
-      <label className="block text-sm font-medium" htmlFor={id}>
-        {label}
-      </label>
-      <select
-        id={id}
-        className="mt-1 w-full rounded border border-gray-300 px-2 py-2 text-base"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        {options.map((opt) => (
-          <option key={opt} value={opt}>
-            {opt}
-          </option>
-        ))}
-      </select>
-    </div>
-  )
 }

@@ -3,6 +3,7 @@ import { Link, Route, Routes } from 'react-router'
 import { useAuth } from './auth/AuthProvider'
 import { RequireAdmin } from './auth/RequireAdmin'
 import { RequireAuth } from './auth/RequireAuth'
+import AdminItemNew from './screens/AdminItemNew'
 import AdminItems from './screens/AdminItems'
 import ItemDetail from './screens/ItemDetail'
 import Items from './screens/Items'
@@ -69,6 +70,15 @@ export default function App() {
         element={
           <RequireAdmin>
             <AdminItems />
+          </RequireAdmin>
+        }
+      />
+
+      <Route
+        path="/admin/items/new"
+        element={
+          <RequireAdmin>
+            <AdminItemNew />
           </RequireAdmin>
         }
       />
