@@ -641,7 +641,12 @@ DTO を介して変換する。スキーマ変更が即 API の破壊になら�
       **作った後に開いて `integrity_check` と件数まで確認する。** 作れたことを成功と
       報告しない。復元できないバックアップは、無いことに気付けないぶん無いより悪い。
       サーバ稼働中でも取れることを確認済み）
-- [ ] Dockerfile に build / runtime ステージを追加（Nodeビルド → Goビルド → 最小実行イメージ）
+- [x] Dockerfile に build / runtime ステージを追加（Nodeビルド → Goビルド → 最小実行イメージ）
+      （`build-web`（node）→ `build`（`CGO_ENABLED=0`）→ `prep` → `runtime`（**scratch**、25.9MB）。
+      **`prep` で `/data` `/uploads` を 65534 所有で作る。** 名前付きボリュームは空の時に
+      イメージ側の所有者を引き継ぐため、これが無いと root 所有になり非rootで書けない。
+      `/tmp` も置く（multipart が大きい本文を `os.TempDir()` に書き出すため）。
+      **scratch にはシェルが無い。** compose のヘルスチェックは curl を使えない）
 - [ ] `compose.yaml`（アプリ1サービス、名前付きボリューム、`restart: unless-stopped`、ヘルスチェック）
 - [ ] `docker compose up` だけで起動し、**ブラウザからログインまで通ることを確認**
 - [ ] コンテナ内での `-create-admin` 実行手順を確立（`docker compose exec`）
