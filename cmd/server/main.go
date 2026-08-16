@@ -3,6 +3,7 @@
 // サブコマンド:
 //
 //	-create-admin   最初の admin を作る（Webからは作れない）
+//	-backup <path>  稼働中でも一貫したDBのコピーを作る
 //
 // デプロイは「バイナリ1つ + SQLiteファイル1つ」で完結させる方針のため、
 // 運用に必要な操作もこのバイナリのサブコマンドとして持たせる。
@@ -39,6 +40,8 @@ func main() {
 		loginID       = flag.String("login-id", "", "-create-admin で作るユーザーのログインID")
 		name          = flag.String("name", "", "-create-admin で作るユーザーの表示名")
 		email         = flag.String("email", "", "-create-admin で作るユーザーのメールアドレス（省略可）")
+
+		backupPath = flag.String("backup", "", "指定したパスにDBのコピーを作って終了する")
 	)
 	flag.Parse()
 
@@ -78,6 +81,13 @@ func main() {
 		in := createAdminInput{LoginID: *loginID, Name: *name, Email: *email}
 		if err := runCreateAdmin(ctx, sqldb, in, os.Stdout); err != nil {
 			log.Fatalf("create-admin: %v", err)
+		}
+		return
+	}
+
+	if *backupPath != "" {
+		if err := runBackup(ctx, sqldb, *backupPath, os.Stdout); err != nil {
+			log.Fatalf("backup: %v", err)
 		}
 		return
 	}

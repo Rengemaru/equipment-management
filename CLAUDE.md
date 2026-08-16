@@ -636,7 +636,11 @@ DTO を介して変換する。スキーマ変更が即 API の破壊になら�
       **知らないパスは index.html を返す**（`/i/0042` を直接開けるようにする）が、
       **拡張子があるものは404**（HTMLをJSとして読ませない）。
       **未知の `/api/` は JSON で404**（HTMLを返すと原因が分からなくなる））
-- [ ] `-backup` サブコマンド（`VACUUM INTO`。**本番イメージには `sqlite3` もシェルも無い前提**）
+- [x] `-backup` サブコマンド（`VACUUM INTO`。**本番イメージには `sqlite3` もシェルも無い前提**）
+      （`/server -backup /data/backup-YYYY-MM-DD.db`。**上書きしない**（世代は運用側で残す）。
+      **作った後に開いて `integrity_check` と件数まで確認する。** 作れたことを成功と
+      報告しない。復元できないバックアップは、無いことに気付けないぶん無いより悪い。
+      サーバ稼働中でも取れることを確認済み）
 - [ ] Dockerfile に build / runtime ステージを追加（Nodeビルド → Goビルド → 最小実行イメージ）
 - [ ] `compose.yaml`（アプリ1サービス、名前付きボリューム、`restart: unless-stopped`、ヘルスチェック）
 - [ ] `docker compose up` だけで起動し、**ブラウザからログインまで通ることを確認**
