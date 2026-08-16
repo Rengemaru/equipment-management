@@ -7,6 +7,7 @@ import AdminItemNew from './screens/AdminItemNew'
 import AdminItems from './screens/AdminItems'
 import AdminItemsImport from './screens/AdminItemsImport'
 import AdminLabels from './screens/AdminLabels'
+import AdminUsers from './screens/AdminUsers'
 import ItemDetail from './screens/ItemDetail'
 import Items from './screens/Items'
 import Login from './screens/Login'
@@ -103,6 +104,15 @@ export default function App() {
         }
       />
 
+      <Route
+        path="/admin/users"
+        element={
+          <RequireAdmin>
+            <AdminUsers />
+          </RequireAdmin>
+        }
+      />
+
       {/* 知らないURLで白い画面を出さない。 */}
       <Route path="*" element={<NotFound />} />
     </Routes>
@@ -132,11 +142,18 @@ function Home() {
         {/* 運営の画面は運営にだけ出す。member に出すと、押した先で
             「権限がありません」に当たるだけになる。 */}
         {isAdmin && (
-          <li>
-            <Link className="text-blue-700 underline" to="/admin/items">
-              備品マスタ管理
-            </Link>
-          </li>
+          <>
+            <li>
+              <Link className="text-blue-700 underline" to="/admin/items">
+                備品マスタ管理
+              </Link>
+            </li>
+            <li>
+              <Link className="text-blue-700 underline" to="/admin/users">
+                ユーザー管理
+              </Link>
+            </li>
+          </>
         )}
       </ul>
     </main>

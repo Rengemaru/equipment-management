@@ -84,6 +84,40 @@ export type Item = {
 }
 
 /**
+ * AdminUser は運営が見る利用者。`GET /api/users` が返す。
+ *
+ * [[User]] より項目が多い。誰が卒業済みか、連絡先が入っているかを
+ * 運営は見る必要がある。__この形を運営以外に見せない。__
+ */
+export type AdminUser = {
+  id: number
+  name: string
+  login_id: string
+
+  /** email は通知専用で、認証には使わない。未設定なら空文字。 */
+  email: string
+
+  role: Role
+  is_active: boolean
+
+  /** must_change_password は初期パスワードのまま。まだ一度も使っていない目安になる。 */
+  must_change_password: boolean
+
+  created_at: string
+}
+
+/**
+ * UserWithPassword は初期パスワードを添えた応答。
+ *
+ * __initial_password はこの応答でしか手に入らない。__ DBにはハッシュしか
+ * 無く、再表示はできない。画面から消す前に必ず控えさせること。
+ */
+export type UserWithPassword = {
+  user: AdminUser
+  initial_password: string
+}
+
+/**
  * ItemAttributes は登録・更新で送る内容。
  *
  * 備品コードを含めない。__コードは採番したら二度と変えない。__
