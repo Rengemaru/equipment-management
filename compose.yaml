@@ -1,0 +1,73 @@
+# 本番用の Compose 定義。開発用は compose.dev.yaml。__混同しないこと。__
+#
+# 開発用と違い、ソースはマウントしない。イメージに焼いたバイナリだけが動く。
+# 手元のファイルを直しても本番の挙動は変わらない。反映するには作り直す:
+#
+#   docker compose up -d --build
+#
+# Compose v2 のため `version:` キーは書かない（廃止済み。書くと警告が出る）。
+
+name: equipment-management
+
+services:
+  app:
+    build:
+      context: .
+      target: runtime
+
+    # 部室のマシンは電源が落ちる前提。停電から復帰したら勝手に戻ってくること。
+    # unless-stopped なので、__手で止めた時だけは止まったままになる。__
+    # always にすると、点検で止めたつもりのものが再起動で生き返る。
+    restart: unless-stopped
+
+    # 開発用と違い required: false にしない。__設定が無いまま起動させない。__
+    # SESSION_SECRET と HOST_URL は推測してよい値ではない。
+    # HOST_URL を間違えるとQRに誤ったURLが焼き付き、印刷後は直せない。
+    env_file:
+      - .env
+
+    environment:
+      # イメージ側の既定と同じ値だが、ここにも書く。
+      # compose.yaml だけを読んだ人が、どこにデータがあるか分かるようにする。
+      DB_PATH: /data/app.db
+      UPLOAD_DIR: /uploads
+
+    ports:
+      # ホスト側:コンテナ側。PORT を変えたら両方が追随するようにする。
+      # コンテナ側だけ 8080 に固定すると、PORT を変えた瞬間に届かなくなる。
+      - "${PORT:-8080}:${PORT:-8080}"
+
+    volumes:
+      # __名前付きボリューム。ホストのバインドマウントにしない。__
+      # Docker Desktop のバインドマウントは WAL のファイルロック挙動が
+      # ホストと異なり、`database is locked` や DB破損を起こす。
+      # Linux本番では動いて開発機だけで壊れる、という最悪の再現性になる。
+      #
+      # 直接ファイルが見えなくなる代わりに、取り出しは -backup で行う。
+      - data:/data
+      - uploads:/uploads
+
+    healthcheck:
+      # __scratch にはシェルも curl も無い。__ CMD-SHELL 形式は使えない。
+      # 配列の CMD 形式はシェルを介さずに実行される。ENTRYPOINT は
+      # 使われないため、バイナリのパスを自分で書く。
+      test: ["CMD", "/server", "-healthcheck"]
+      interval: 30s
+      # バイナリ側は3秒で諦める。ここを短くすると、諦める前に殺されて
+      # 終了コードだけが残り、遅いのか死んでいるのか読めなくなる。
+      timeout: 5s
+      # 起動直後の失敗を数えない猶予。この間の失敗は retries を消費しない。
+      start_period: 10s
+      retries: 3
+
+    logging:
+      driver: json-file
+      options:
+        # 既定では際限なく太り、部室のマシンのディスクを埋める。
+        # 埋まると SQLite が書けなくなり、__記録が静かに失われる。__
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  data:
+  uploads:

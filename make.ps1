@@ -9,7 +9,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('help', 'up', 'down', 'sh', 'logs', 'fmt', 'test', 'test-web')]
+    [ValidateSet('help', 'up', 'down', 'sh', 'logs', 'fmt', 'test', 'test-web',
+        'prod-build', 'prod-up', 'prod-down', 'prod-logs', 'prod-ps')]
     [string]$Task = 'help'
 )
 
@@ -20,6 +21,10 @@ param(
 
 # PowerShell 5.1 には && が無いため、コマンドは配列で組み立てて渡す
 $ComposeArgs = @('compose', '-f', 'compose.dev.yaml')
+
+# 本番用。対象が compose.yaml であることを prod- で明示する。
+# dev と同じ名前にすると、止めるつもりで本番を止める事故が起きる。
+$ProdArgs = @('compose', '-f', 'compose.yaml')
 
 function Invoke-InContainer {
     param([string]$Command)
@@ -37,6 +42,12 @@ switch ($Task) {
         Write-Host '  fmt            gofmt と go vet をかける'
         Write-Host '  test           Go のテストを実行する'
         Write-Host '  test-web       フロントの型検査・ビルド・テストを実行する'
+        Write-Host ''
+        Write-Host '  prod-build     本番イメージを作り直す'
+        Write-Host '  prod-up        本番を起動する'
+        Write-Host '  prod-down      本番を停止する'
+        Write-Host '  prod-logs      本番のログを追う'
+        Write-Host '  prod-ps        本番の状態とヘルスチェックの結果を見る'
     }
     'up'    { docker @ComposeArgs up -d }
     'down'  { docker @ComposeArgs down }
@@ -51,6 +62,13 @@ switch ($Task) {
     # テストだけでなく build も通すのは、型検査が npm run build（tsc --noEmit）にしか
     # 無いため。vitest は esbuild で型を落として実行するので、型エラーを見逃す。
     'test-web' { Invoke-InContainer 'cd web && npm ci && npm run build && npm test' }
+
+    # 本番。ソースはマウントされないため、手元の変更は prod-build まで反映されない。
+    'prod-build' { docker @ProdArgs build }
+    'prod-up'    { docker @ProdArgs up -d }
+    'prod-down'  { docker @ProdArgs down }
+    'prod-logs'  { docker @ProdArgs logs -f }
+    'prod-ps'    { docker @ProdArgs ps }
 }
 
 exit $LASTEXITCODE

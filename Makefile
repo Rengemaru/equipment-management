@@ -40,3 +40,26 @@ test: ## Go のテストを実行する
 # 無いため。vitest は esbuild で型を落として実行するので、型エラーを見逃す。
 test-web: ## フロントの型検査・ビルド・テストを実行する
 	$(EXEC) 'cd web && npm ci && npm run build && npm test'
+
+# ---- 本番 ----
+# 対象が compose.yaml（本番）であることを prod- で明示する。
+# dev と同じ名前にすると、__止めるつもりで本番を止める__ 事故が起きる。
+
+PROD := docker compose -f compose.yaml
+
+.PHONY: prod-build prod-up prod-down prod-logs prod-ps
+
+prod-build: ## 本番イメージを作り直す
+	$(PROD) build
+
+prod-up: ## 本番を起動する（イメージが無ければ作る）
+	$(PROD) up -d
+
+prod-down: ## 本番を停止する（データのボリュームは消さない）
+	$(PROD) down
+
+prod-logs: ## 本番のログを追う
+	$(PROD) logs -f
+
+prod-ps: ## 本番の状態とヘルスチェックの結果を見る
+	$(PROD) ps

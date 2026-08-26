@@ -258,7 +258,17 @@ npm run dev            # コンテナ内（web/ で）
 | Goテスト | `make test` | `.\make.ps1 test` |
 | フロント（型検査+ビルド+テスト） | `make test-web` | `.\make.ps1 test-web` |
 
-`create-admin` / `build` は、**対象の機能を実装した時に足す。**
+本番（`compose.yaml`）を触るものは `prod-` を頭に付ける。**dev と同じ名前にすると、止めるつもりで本番を止める。**
+
+| やること | macOS | Windows (PowerShell) |
+|---|---|---|
+| 本番イメージを作り直す | `make prod-build` | `.\make.ps1 prod-build` |
+| 本番を起動 | `make prod-up` | `.\make.ps1 prod-up` |
+| 本番を停止 | `make prod-down` | `.\make.ps1 prod-down` |
+| 本番のログ | `make prod-logs` | `.\make.ps1 prod-logs` |
+| 本番の状態・ヘルスチェック結果 | `make prod-ps` | `.\make.ps1 prod-ps` |
+
+`create-admin` は、**対象の機能を実装した時に足す。**
 動かないターゲットを先に置くと、壊れているのか未実装なのか区別できなくなる。
 
 **タスクを増やすときは `Makefile` と `make.ps1` の両方に追加する。** 片方だけ更新すると、環境を移った瞬間に動かなくなる。
@@ -647,7 +657,14 @@ DTO を介して変換する。スキーマ変更が即 API の破壊になら�
       イメージ側の所有者を引き継ぐため、これが無いと root 所有になり非rootで書けない。
       `/tmp` も置く（multipart が大きい本文を `os.TempDir()` に書き出すため）。
       **scratch にはシェルが無い。** compose のヘルスチェックは curl を使えない）
-- [ ] `compose.yaml`（アプリ1サービス、名前付きボリューム、`restart: unless-stopped`、ヘルスチェック）
+- [x] `compose.yaml`（アプリ1サービス、名前付きボリューム、`restart: unless-stopped`、ヘルスチェック）
+      （ヘルスチェックは `["CMD", "/server", "-healthcheck"]`。**scratch には curl もシェルも無く
+      `CMD-SHELL` は使えない**ため、`-healthcheck` をバイナリ側に足した。
+      ポート公開は `"${PORT:-8080}:${PORT:-8080}"`。コンテナ側を固定すると
+      `PORT` を変えた瞬間に届かなくなる。`env_file` は `required: false` にしない
+      （`HOST_URL` を間違えるとQRに焼き付き、印刷後は直せない）。
+      ログは `max-size: 10m` / `max-file: 5` で回す。埋まると SQLite が書けなくなり、
+      **記録が静かに失われる**。`make prod-up` / `.\make.ps1 prod-up` で叩く）
 - [ ] `docker compose up` だけで起動し、**ブラウザからログインまで通ることを確認**
 - [ ] コンテナ内での `-create-admin` 実行手順を確立（`docker compose exec`）
 - [ ] バックアップ/リストアの実演（`-backup` を取り、**そこから復元できることまで確認する**）
