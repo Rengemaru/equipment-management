@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
-import { Link } from 'react-router'
 
+import { Empty } from '../ui/Feedback'
+import { Screen } from '../ui/Screen'
 import { useAuth } from './AuthProvider'
 import { RequireAuth } from './RequireAuth'
 
@@ -31,15 +32,12 @@ function AdminOnly({ children }: { children: ReactNode }) {
 
   if (auth.user.role !== 'admin') {
     return (
-      <main className="mx-auto max-w-screen-sm p-4">
-        <h1 className="text-xl font-bold">この画面は運営のみが使えます</h1>
-        <p className="mt-2 text-sm text-gray-600">
-          備品の登録や修正が必要な場合は、運営に依頼してください。
-        </p>
-        <Link className="mt-4 inline-block text-blue-700 underline" to="/items">
-          備品一覧へ
-        </Link>
-      </main>
+      <Screen title="この画面は運営のみが使えます" back={{ to: '/items', label: '備品一覧' }}>
+        <Empty
+          title="権限がありません"
+          hint="備品の登録や修正が必要な場合は、運営に依頼してください。"
+        />
+      </Screen>
     )
   }
 

@@ -6,7 +6,18 @@
       モバイルファースト。利用の大半はスマートフォンからで、
       これが無いとスマホが幅980pxの画面として描画し、全体が縮小表示になる。
     -->
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      viewport-fit=cover を付けないと env(safe-area-inset-*) が常に 0 になり、
+      iPhone のホームバーやノッチに中身が潜り込む。
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+
+    <!--
+      アドレスバーの色を地の色に合わせる。ライト・ダークで別に指定する。
+      揃えないと、画面の上端に別の色の帯が残って窮屈に見える。
+    -->
+    <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
     <title>備品管理</title>
   </head>
   <body>

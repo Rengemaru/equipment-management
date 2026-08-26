@@ -33,5 +33,9 @@ test('割り当てのないURLは見つからないと表示する', async () =>
   renderApp('/loans')
 
   expect(await screen.findByRole('heading', { name: 'ページが見つかりません' })).toBeDefined()
-  expect(screen.getByRole('link', { name: 'トップへ' })).toBeDefined()
+  // 戻る導線はナビゲーションバーに出す（iOS と同じく、行き先の名前だけを出す）。
+  expect(screen.getByRole('link', { name: 'トップ' })).toHaveProperty(
+    'href',
+    expect.stringMatching(/\/$/),
+  )
 })

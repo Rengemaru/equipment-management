@@ -1,4 +1,4 @@
-import { Link, Route, Routes } from 'react-router'
+import { Route, Routes } from 'react-router'
 
 import { useAuth } from './auth/AuthProvider'
 import { RequireAdmin } from './auth/RequireAdmin'
@@ -12,6 +12,9 @@ import ItemDetail from './screens/ItemDetail'
 import Items from './screens/Items'
 import Login from './screens/Login'
 import PasswordChange from './screens/PasswordChange'
+import { Empty } from './ui/Feedback'
+import { LinkRow, List } from './ui/List'
+import { Screen } from './ui/Screen'
 
 /**
  * App は画面の割り当てだけを持つ。
@@ -127,49 +130,45 @@ export default function App() {
 function Home() {
   const auth = useAuth()
   const isAdmin = auth.status === 'authenticated' && auth.user.role === 'admin'
+  const name = auth.status === 'authenticated' ? auth.user.name : ''
 
   return (
-    <main className="mx-auto max-w-screen-sm p-4">
-      <h1 className="text-xl font-bold">備品管理</h1>
+    <Screen title="備品管理" subtitle={name === '' ? undefined : `${name} さん`}>
+      <List>
+        <LinkRow to="/items">
+          <span className="text-[17px]">備品一覧</span>
+        </LinkRow>
+      </List>
 
-      <ul className="mt-4 space-y-2">
-        <li>
-          <Link className="text-blue-700 underline" to="/items">
-            備品一覧
-          </Link>
-        </li>
+      {/* 運営の画面は運営にだけ出す。member に出すと、押した先で
+          「権限がありません」に当たるだけになる。 */}
+      {isAdmin && (
+        <List header="運営">
+          <LinkRow to="/admin/items">
+            <span className="text-[17px]">備品マスタ管理</span>
+          </LinkRow>
+          <LinkRow to="/admin/users">
+            <span className="text-[17px]">ユーザー管理</span>
+          </LinkRow>
+        </List>
+      )}
 
-        {/* 運営の画面は運営にだけ出す。member に出すと、押した先で
-            「権限がありません」に当たるだけになる。 */}
-        {isAdmin && (
-          <>
-            <li>
-              <Link className="text-blue-700 underline" to="/admin/items">
-                備品マスタ管理
-              </Link>
-            </li>
-            <li>
-              <Link className="text-blue-700 underline" to="/admin/users">
-                ユーザー管理
-              </Link>
-            </li>
-          </>
-        )}
-      </ul>
-    </main>
+      <List>
+        <LinkRow to="/password">
+          <span className="text-[17px]">パスワードの変更</span>
+        </LinkRow>
+      </List>
+    </Screen>
   )
 }
 
 function NotFound() {
   return (
-    <main className="mx-auto max-w-screen-sm p-4">
-      <h1 className="text-xl font-bold">ページが見つかりません</h1>
-      <p className="mt-2 text-sm text-gray-600">
-        QRの読み取りに失敗したか、URLが変わった可能性があります。
-      </p>
-      <Link className="mt-4 inline-block text-blue-700 underline" to="/">
-        トップへ
-      </Link>
-    </main>
+    <Screen title="ページが見つかりません" back={{ to: '/', label: 'トップ' }}>
+      <Empty
+        title="そのURLの画面はありません"
+        hint="QRの読み取りに失敗したか、URLが変わった可能性があります。"
+      />
+    </Screen>
   )
 }

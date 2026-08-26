@@ -1,6 +1,9 @@
 import type { ReactNode } from 'react'
 import { Navigate, useLocation } from 'react-router'
 
+import { Button } from '../ui/Button'
+import { Loading, Notice } from '../ui/Feedback'
+import { Screen } from '../ui/Screen'
 import { useAuth } from './AuthProvider'
 
 /**
@@ -17,21 +20,27 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   const location = useLocation()
 
   if (auth.status === 'loading') {
-    return <Notice>確認しています…</Notice>
+    return (
+      <Screen title="備品管理">
+        <Loading>確認しています…</Loading>
+      </Screen>
+    )
   }
 
   if (auth.status === 'unavailable') {
     return (
-      <Notice>
-        <p>サーバに接続できません。</p>
-        <p className="mt-1 text-sm text-gray-600">{auth.message}</p>
-        <button
-          className="mt-4 rounded bg-blue-700 px-4 py-2 text-white"
-          onClick={() => void auth.reload()}
-        >
-          再試行
-        </button>
-      </Notice>
+      <Screen title="接続できません">
+        <Notice>
+          サーバに接続できません。
+          <span className="mt-1 block text-[13px] text-label-3">{auth.message}</span>
+        </Notice>
+
+        <div className="mt-6">
+          <Button full tone="tinted" onClick={() => void auth.reload()}>
+            再試行
+          </Button>
+        </div>
+      </Screen>
     )
   }
 
@@ -63,8 +72,3 @@ export function RequireAuth({ children }: { children: ReactNode }) {
 
 /** passwordPath はパスワード変更画面。サーバの redirect_to と同じ値。 */
 const passwordPath = '/password'
-
-/** Notice は画面の中身の代わりに出す短い知らせ。 */
-function Notice({ children }: { children: ReactNode }) {
-  return <main className="mx-auto max-w-screen-sm p-4">{children}</main>
-}
