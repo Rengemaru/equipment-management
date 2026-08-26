@@ -4,6 +4,10 @@ import { useNavigate, useSearchParams } from 'react-router'
 
 import { errorMessage } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
+import { Button } from '../ui/Button'
+import { Alert, Notice } from '../ui/Feedback'
+import { FieldGroup, StackedField } from '../ui/Field'
+import { Screen } from '../ui/Screen'
 
 /**
  * PasswordChange はパスワード変更画面。
@@ -58,79 +62,61 @@ export default function PasswordChange() {
   }
 
   return (
-    <main className="mx-auto max-w-screen-sm p-4">
-      <h1 className="text-xl font-bold">パスワードの変更</h1>
-
+    <Screen
+      title="パスワードの変更"
+      // 強制されて来た人には戻る先が無い。ここを出ることは許されていない。
+      back={forced ? undefined : { to: '/', label: 'トップ' }}
+    >
       {forced && (
-        <p className="mt-2 rounded bg-amber-50 p-3 text-sm text-amber-900">
-          初期パスワードのままです。変更するまで他の画面は使えません。
-        </p>
+        <Notice tone="warn">初期パスワードのままです。変更するまで他の画面は使えません。</Notice>
       )}
 
-      <form className="mt-4 space-y-4" onSubmit={(e) => void handleSubmit(e)}>
-        <div>
-          <label className="block text-sm font-medium" htmlFor="current-password">
-            現在のパスワード
-          </label>
-          <input
+      <form onSubmit={(e) => void handleSubmit(e)}>
+        <FieldGroup>
+          <StackedField
             id="current-password"
+            label="現在のパスワード"
             name="current_password"
             type="password"
             autoComplete="current-password"
             required
-            // text-base（16px）未満だと iOS が焦点を当てた瞬間に拡大する。
-            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-base"
             value={current}
             onChange={(e) => setCurrent(e.target.value)}
           />
-        </div>
+        </FieldGroup>
 
-        <div>
-          <label className="block text-sm font-medium" htmlFor="new-password">
-            新しいパスワード
-          </label>
-          <input
+        <FieldGroup footer="他の端末でログインしたままの場合、変更すると全て切れます。この端末はそのまま使えます。">
+          <StackedField
             id="new-password"
+            label="新しいパスワード"
             name="new_password"
             type="password"
             autoComplete="new-password"
             required
-            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-base"
             value={next}
             onChange={(e) => setNext(e.target.value)}
           />
-        </div>
 
-        <div>
-          <label className="block text-sm font-medium" htmlFor="confirm-password">
-            新しいパスワード（確認）
-          </label>
-          <input
+          <StackedField
             id="confirm-password"
+            label="新しいパスワード（確認）"
             name="confirm_password"
             type="password"
             autoComplete="new-password"
             required
-            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-base"
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
           />
+        </FieldGroup>
+
+        {error !== '' && <Alert>{error}</Alert>}
+
+        <div className="mt-6">
+          <Button type="submit" full disabled={submitting}>
+            {submitting ? '変更しています…' : '変更する'}
+          </Button>
         </div>
-
-        {error !== '' && (
-          <p role="alert" className="text-sm text-red-700">
-            {error}
-          </p>
-        )}
-
-        <button
-          type="submit"
-          disabled={submitting}
-          className="w-full rounded bg-blue-700 px-4 py-3 text-base text-white disabled:bg-gray-400"
-        >
-          {submitting ? '変更しています…' : '変更する'}
-        </button>
       </form>
-    </main>
+    </Screen>
   )
 }
