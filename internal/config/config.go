@@ -40,6 +40,26 @@ const minSecretLen = 32
 // devSecret は .env.example が持つ開発用の値。本番で使われていないか警告するために持つ。
 const devSecret = "change-me-this-is-only-for-local-development"
 
+// defaultPort は PORT が未設定のときに使う値。
+const defaultPort = "8080"
+
+// PortFromEnv は PORT だけを読む。未設定なら既定値を返す。
+//
+// Load を通さずにポートだけが要る経路のために分けてある（-healthcheck）。
+// ヘルスチェックは動いているサーバと同じコンテナで数秒ごとに走るため、
+// DB_PATH や SESSION_SECRET まで要求すると、見たいもの（サーバが応答するか）と
+// 関係のない理由で失敗する。
+//
+// 既定値を呼び出し側に書き写さないこと。片方だけ変えると、
+// __サーバは 9000 で待ち、ヘルスチェックは 8080 を叩き続ける__ 状態になる。
+func PortFromEnv(getenv func(string) string) string {
+	port := strings.TrimSpace(getenv("PORT"))
+	if port == "" {
+		return defaultPort
+	}
+	return port
+}
+
 // Load は環境変数を読んで Config を組み立てる。
 //
 // getenv を引数で受けるのは、テストでプロセスの環境変数を書き換えないため。
@@ -67,10 +87,7 @@ func Load(getenv func(string) string) (*Config, []string, error) {
 
 	// ---- PORT ----
 	// 既定値を置いてよい。間違っても待ち受け先が変わるだけで、データは壊れない。
-	cfg.Port = strings.TrimSpace(getenv("PORT"))
-	if cfg.Port == "" {
-		cfg.Port = "8080"
-	}
+	cfg.Port = PortFromEnv(getenv)
 	if n, err := strconv.Atoi(cfg.Port); err != nil || n < 1 || n > 65535 {
 		problems = append(problems, fmt.Sprintf("PORT が不正: %q", cfg.Port))
 	}

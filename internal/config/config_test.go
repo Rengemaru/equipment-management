@@ -223,3 +223,21 @@ func TestLoad_PORTの形式を検査する(t *testing.T) {
 		})
 	}
 }
+
+// PortFromEnv は Load を通さずに呼ばれる（-healthcheck）。
+// Load 側の既定値と食い違うと、サーバが待つポートとヘルスチェックが叩く
+// ポートがずれ、健全なのに unhealthy と報告され続ける。
+func TestPortFromEnv_Loadと同じ値を返す(t *testing.T) {
+	for _, raw := range []string{"", "  ", "8080", "9000"} {
+		env := validEnv()
+		env["PORT"] = raw
+
+		cfg, _, err := Load(getenvFrom(env))
+		if err != nil {
+			t.Fatalf("PORT=%q: Load: %v", raw, err)
+		}
+		if got := PortFromEnv(getenvFrom(env)); got != cfg.Port {
+			t.Errorf("PORT=%q: PortFromEnv = %q, Load = %q", raw, got, cfg.Port)
+		}
+	}
+}

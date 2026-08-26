@@ -4,6 +4,7 @@
 //
 //	-create-admin   最初の admin を作る（Webからは作れない）
 //	-backup <path>  稼働中でも一貫したDBのコピーを作る
+//	-healthcheck    自分自身の /healthz を叩く（Compose のヘルスチェック用）
 //
 // デプロイは「バイナリ1つ + SQLiteファイル1つ」で完結させる方針のため、
 // 運用に必要な操作もこのバイナリのサブコマンドとして持たせる。
@@ -42,8 +43,25 @@ func main() {
 		email         = flag.String("email", "", "-create-admin で作るユーザーのメールアドレス（省略可）")
 
 		backupPath = flag.String("backup", "", "指定したパスにDBのコピーを作って終了する")
+
+		doHealthcheck = flag.Bool("healthcheck", false, "自分自身の /healthz を叩いて終了する（コンテナのヘルスチェック用）")
 	)
 	flag.Parse()
+
+	// ヘルスチェックは設定の読み込みより前で捌く。
+	//
+	// これは動いているサーバと同じコンテナで、数秒ごとに実行される。
+	// __DBを開いてはならないし、マイグレーションを走らせてはならない。__
+	// 見たいのは「サーバが応答するか」だけで、必要なのは PORT だけ。
+	//
+	// タイムアウトはヘルスチェック側の timeout より短くする。長いと
+	// Docker がプロセスを殺し、応答が無いのか遅いのか区別できなくなる。
+	if *doHealthcheck {
+		if err := runHealthcheck(context.Background(), config.PortFromEnv(os.Getenv), 3*time.Second); err != nil {
+			log.Fatalf("healthcheck: %v", err)
+		}
+		return
+	}
 
 	// 設定の不備は起動時に全て出して落とす。
 	// 不完全な設定で起動させると、間違った場所に書き続けたまま運用が始まる。
