@@ -12,6 +12,9 @@ import { Link } from 'react-router'
 type Tone = 'filled' | 'tinted' | 'plain' | 'danger'
 
 const toneClass: Record<Tone, string> = {
+  // 文字は白で固定する。__ここだけは変数にしない。__ 地が systemBlue で、
+  // ライトでもダークでも白が乗る（iOS も同じ）。label に置き換えると
+  // ダークモードで白地に白の文字になる。
   filled: 'bg-tint text-white font-semibold',
   tinted: 'bg-fill text-tint font-medium',
   plain: 'text-tint',

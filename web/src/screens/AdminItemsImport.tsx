@@ -1,10 +1,14 @@
 import { useState } from 'react'
 import type { ChangeEvent } from 'react'
-import { Link } from 'react-router'
 
 import { errorMessage } from '../api/client'
 import { importItems, previewImport } from '../api/items'
 import type { ImportPreview, ImportResult } from '../api/items'
+import { Button } from '../ui/Button'
+import { Alert } from '../ui/Feedback'
+import { FieldGroup } from '../ui/Field'
+import { Card, LinkRow, List } from '../ui/List'
+import { Screen } from '../ui/Screen'
 
 /**
  * AdminItemsImport は棚卸しCSVの取り込み画面（運営のみ）。
@@ -77,75 +81,77 @@ export default function AdminItemsImport() {
 
   if (result !== null) {
     return (
-      <main className="mx-auto max-w-screen-sm p-4">
-        <h1 className="text-xl font-bold">取り込みました</h1>
+      <Screen title="取り込みました" back={{ to: '/admin/items', label: 'マスタ管理' }}>
+        {/* 予定ではなく確定した値。__この範囲がそのままラベルの印刷範囲になる。__ */}
+        <Card header="採番された備品コード">
+          <div className="px-4 py-5 text-center">
+            <p className="font-mono text-[32px] leading-none font-semibold tabular-nums">
+              {result.code_from} 〜 {result.code_to}
+            </p>
+            <p className="mt-2 text-[15px] text-label-2">
+              {result.record_count}件を登録しました。
+            </p>
+          </div>
+        </Card>
 
-        <p className="mt-4">{result.record_count}件を登録しました。</p>
-
-        <p className="mt-4 text-sm text-gray-600">採番された備品コード</p>
-        {/* 予定ではなく確定した値。この範囲がそのままラベルの印刷範囲になる。 */}
-        <p className="font-mono text-2xl">
-          {result.code_from} 〜 {result.code_to}
-        </p>
-
-        <div className="mt-6 flex flex-wrap gap-3">
-          <Link className="text-blue-700 underline" to="/admin/items">
-            マスタ管理へ
-          </Link>
-        </div>
-      </main>
+        <List>
+          <LinkRow to={`/admin/labels?from=${result.code_from}&to=${result.code_to}`}>
+            <span className="text-[17px]">この範囲のQRラベルを刷る</span>
+          </LinkRow>
+          <LinkRow to="/admin/items">
+            <span className="text-[17px]">マスタ管理へ</span>
+          </LinkRow>
+        </List>
+      </Screen>
     )
   }
 
   return (
-    <main className="mx-auto max-w-screen-sm p-4">
-      <h1 className="text-xl font-bold">CSVで一括登録</h1>
-      <p className="mt-1 text-sm text-gray-600">
+    <Screen title="CSVで一括登録" back={{ to: '/admin/items', label: 'マスタ管理' }}>
+      <p className="mt-1 px-4 text-[13px] leading-snug text-label-2">
         棚卸しシートのCSVを取り込みます。備品コードは取り込み時に採番されます。
       </p>
 
-      <div className="mt-4">
-        <label className="block text-sm font-medium" htmlFor="file">
-          CSVファイル
-        </label>
-        <input
-          id="file"
-          type="file"
-          accept=".csv,text/csv"
-          className="mt-1 w-full text-sm"
-          onChange={chooseFile}
-        />
-        <p className="mt-1 text-xs text-gray-600">
-          文字コードは UTF-8 でも Shift_JIS でも構いません。
-        </p>
+      <FieldGroup header="CSVファイル" footer="文字コードは UTF-8 でも Shift_JIS でも構いません。">
+        <div className="px-4 py-3">
+          <label className="block text-[13px] text-label-2" htmlFor="file">
+            CSVファイル
+          </label>
+          <input
+            id="file"
+            type="file"
+            accept=".csv,text/csv"
+            className="mt-1.5 w-full text-[15px] file:mr-3 file:rounded-full file:border-0 file:bg-fill file:px-3 file:py-1.5 file:text-[15px] file:text-tint"
+            onChange={chooseFile}
+          />
+        </div>
+      </FieldGroup>
+
+      {/* __確定の前に必ずプレビューを挟む。__ 同じファイルを2度送る
+          （サーバは解析結果を持たない）。 */}
+      <div className="mt-6">
+        <Button
+          full
+          tone="tinted"
+          disabled={file === null || previewing || importing}
+          onClick={() => void runPreview()}
+        >
+          {previewing ? '確認しています…' : '内容を確認する'}
+        </Button>
       </div>
 
-      <button
-        className="mt-3 rounded bg-blue-700 px-4 py-2 text-white disabled:bg-gray-400"
-        disabled={file === null || previewing || importing}
-        onClick={() => void runPreview()}
-      >
-        {previewing ? '確認しています…' : '内容を確認する'}
-      </button>
-
-      {error !== '' && (
-        <p role="alert" className="mt-4 text-sm text-red-700">
-          {error}
-        </p>
-      )}
+      {error !== '' && <Alert>{error}</Alert>}
 
       {preview !== null && <Preview preview={preview} excluded={excluded} onToggle={toggle} />}
 
       {preview !== null && preview.can_import && (
-        <button
-          className="mt-4 w-full rounded bg-blue-700 px-4 py-3 text-white disabled:bg-gray-400"
-          disabled={importing}
-          onClick={() => void runImport()}
-        >
-          {importing ? '取り込んでいます…' : 'この内容で取り込む'}
-        </button>
+        <div className="mt-6">
+          <Button full disabled={importing} onClick={() => void runImport()}>
+            {importing ? '取り込んでいます…' : 'この内容で取り込む'}
+          </Button>
+        </div>
       )}
-    </main>
+    </Screen>
   )
 }
 
@@ -165,83 +171,97 @@ function Preview({
     .reduce((sum, row) => sum + row.quantity, 0)
 
   return (
-    <section className="mt-6">
-      <h2 className="text-lg font-bold">確認</h2>
-
+    <>
       {preview.errors.length > 0 ? (
-        <div className="mt-2 rounded bg-red-50 p-3">
+        <>
           {/* 誤りが1件でもあれば取り込めない。全件成功か全件失敗で、
               誤った行だけを飛ばして入れることはしない（m1-spec §5）。 */}
-          <p role="alert" className="text-sm text-red-800">
+          <Alert>
             取り込めない行が{preview.errors.length}件あります。CSVを直してから、
             もう一度確認してください。
-          </p>
-          <ul className="mt-2 space-y-1">
-            {preview.errors.map((e) => (
-              <li key={e.line} className="text-sm text-red-800">
-                {e.line}行目: {e.message}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : (
-        <>
-          <p className="mt-2">
-            {preview.row_count}行から <strong>{records}件</strong> の備品を登録します。
-          </p>
+          </Alert>
 
-          {/* 採番の予定は、除外を選んでいない時だけ出す。行を除くと範囲がずれるのに
-              決まった値のように見せると、この範囲でラベルを刷る人が出る。 */}
-          {excluded.size === 0 && preview.code_from !== '' && (
-            <p className="mt-1 text-sm text-gray-600">
-              採番の予定: <span className="font-mono">{preview.code_from} 〜 {preview.code_to}</span>
-              （予定です。実際の番号は取り込み後に表示します）
-            </p>
-          )}
-
-          <p className="mt-3 text-sm text-gray-600">
-            テンプレートの記入例が残っている場合は、その行の「取り込まない」に印を付けてください。
-            CSVを直す必要はありません。
-          </p>
+          <Card header="取り込めない行">
+            <ul className="divide-y divide-separator">
+              {preview.errors.map((e) => (
+                <li key={e.line} className="px-4 py-2.5 text-[15px] text-danger">
+                  {e.line}行目: {e.message}
+                </li>
+              ))}
+            </ul>
+          </Card>
         </>
+      ) : (
+        <Card header="確認">
+          <div className="px-4 py-3">
+            <p className="text-[17px]">
+              {preview.row_count}行から <strong>{records}件</strong> の備品を登録します。
+            </p>
+
+            {/* 採番の予定は、除外を選んでいない時だけ出す。行を除くと範囲がずれるのに
+                決まった値のように見せると、この範囲でラベルを刷る人が出る。 */}
+            {excluded.size === 0 && preview.code_from !== '' && (
+              <p className="mt-1.5 text-[13px] text-label-2">
+                採番の予定:{' '}
+                <span className="font-mono tabular-nums">
+                  {preview.code_from} 〜 {preview.code_to}
+                </span>
+                （予定です。実際の番号は取り込み後に表示します）
+              </p>
+            )}
+
+            <p className="mt-3 text-[13px] leading-snug text-label-2">
+              テンプレートの記入例が残っている場合は、その行の「取り込まない」に印を付けてください。
+              CSVを直す必要はありません。
+            </p>
+          </div>
+        </Card>
       )}
 
       {preview.rows.length > 0 && (
-        <ul className="mt-3 divide-y divide-gray-200 border-y border-gray-200">
-          {preview.rows.map((row) => {
-            const skip = excluded.has(row.line)
-            return (
-              <li key={row.line} className={`py-2 ${skip ? 'opacity-50' : ''}`}>
-                <div className="flex items-baseline gap-2">
-                  <span className="font-mono text-xs text-gray-600">{row.line}行目</span>
-                  <span className="font-medium">{row.name}</span>
-                  {row.quantity > 1 && <span className="text-sm">×{row.quantity}</span>}
-                </div>
+        <Card header="内容">
+          <ul className="divide-y divide-separator">
+            {preview.rows.map((row) => {
+              const skip = excluded.has(row.line)
+              const detail = [row.category, row.model, row.location, row.condition]
+                .filter((v) => v !== '')
+                .join('・')
 
-                <p className="text-sm text-gray-600">
-                  {[row.category, row.model, row.location, row.condition]
-                    .filter((v) => v !== '')
-                    .join('・')}
-                  {row.is_free_use && '・自由利用品'}
-                </p>
+              return (
+                <li key={row.line} className={`px-4 py-2.5 ${skip ? 'opacity-40' : ''}`}>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[12px] tabular-nums text-label-2">
+                      {row.line}行目
+                    </span>
+                    <span className="truncate text-[17px]">{row.name}</span>
+                    {row.quantity > 1 && (
+                      <span className="text-[15px] text-label-2">×{row.quantity}</span>
+                    )}
+                  </div>
 
-                <label className="mt-1 flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    className="size-4"
-                    // 同じ文言の印が並ぶため、どの行のものか名前に含める。
-                    // 読み上げでも「どれを外したのか」が分かるようにする。
-                    aria-label={`${row.line}行目を取り込まない`}
-                    checked={skip}
-                    onChange={() => onToggle(row.line)}
-                  />
-                  取り込まない
-                </label>
-              </li>
-            )
-          })}
-        </ul>
+                  <p className="mt-0.5 truncate text-[13px] text-label-2">
+                    {detail}
+                    {row.is_free_use && '・自由利用品'}
+                  </p>
+
+                  <label className="mt-1.5 flex min-h-9 items-center gap-2 text-[15px] text-label-2">
+                    <input
+                      type="checkbox"
+                      className="size-5 accent-[color:var(--c-tint)]"
+                      // 同じ文言の印が並ぶため、どの行のものか名前に含める。
+                      // 読み上げでも「どれを外したのか」が分かるようにする。
+                      aria-label={`${row.line}行目を取り込まない`}
+                      checked={skip}
+                      onChange={() => onToggle(row.line)}
+                    />
+                    取り込まない
+                  </label>
+                </li>
+              )
+            })}
+          </ul>
+        </Card>
       )}
-    </section>
+    </>
   )
 }

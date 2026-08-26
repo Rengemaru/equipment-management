@@ -177,7 +177,8 @@ export function SwitchField({
             onChange={(e) => onChange(e.target.checked)}
             className="peer h-[31px] w-[51px] cursor-pointer appearance-none rounded-full bg-fill transition-colors checked:bg-[#34c759] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tint"
           />
-          {/* つまみ。入力そのものは描けないので上に重ねる。 */}
+          {/* つまみ。入力そのものは描けないので上に重ねる。
+              白で固定する。iOS のスイッチはダークモードでもつまみは白。 */}
           <span className="pointer-events-none absolute top-0.5 left-0.5 h-[27px] w-[27px] rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
         </span>
       </div>

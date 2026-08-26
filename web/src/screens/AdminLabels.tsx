@@ -1,10 +1,15 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router'
+import { useSearchParams } from 'react-router'
 
 import { errorMessage } from '../api/client'
 import { itemFilters, listItems } from '../api/items'
 import type { FilterOptions } from '../api/items'
 import type { Item } from '../api/types'
+import { ButtonLink } from '../ui/Button'
+import { Alert, Empty } from '../ui/Feedback'
+import { Field, FieldGroup, SelectField } from '../ui/Field'
+import { Card } from '../ui/List'
+import { Screen } from '../ui/Screen'
 
 /**
  * AdminLabels はQRラベルの印刷画面（運営のみ）。
@@ -17,9 +22,14 @@ import type { Item } from '../api/types'
  * 無駄になるため、その前に画面側で件数を出し、0件ならリンクを出さない。
  */
 export default function AdminLabels() {
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
-  const [category, setCategory] = useState('')
+  // 初期値はURLのクエリから取る。CSVで一括登録した直後に
+  // 「この範囲を刷る」で来られるようにするため。__採番された範囲を__
+  // __人が書き写すと、桁を間違えたぶんだけラベルが無駄になる。__
+  const [params] = useSearchParams()
+
+  const [from, setFrom] = useState(params.get('from') ?? '')
+  const [to, setTo] = useState(params.get('to') ?? '')
+  const [category, setCategory] = useState(params.get('category') ?? '')
 
   const [items, setItems] = useState<Item[] | null>(null)
   const [error, setError] = useState('')
@@ -75,51 +85,31 @@ export default function AdminLabels() {
       : items.filter((it) => inRange(it.code, fromNum, toNum))
 
   return (
-    <main className="mx-auto max-w-screen-sm p-4">
-      <h1 className="text-xl font-bold">QRラベルの印刷</h1>
-      <p className="mt-1 text-sm text-gray-600">
+    <Screen title="QRラベルの印刷" back={{ to: '/admin/items', label: 'マスタ管理' }}>
+      <p className="mt-1 px-4 text-[13px] leading-snug text-label-2">
         A4のラベルシート（24面）にQRと備品コード・品名を並べたPDFを作ります。
       </p>
 
-      <div className="mt-4 grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-sm font-medium" htmlFor="from">
-            開始コード
-          </label>
-          <input
-            id="from"
-            inputMode="numeric"
-            placeholder="0001"
-            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-base"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium" htmlFor="to">
-            終了コード
-          </label>
-          <input
-            id="to"
-            inputMode="numeric"
-            placeholder="0050"
-            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-base"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-          />
-        </div>
-      </div>
-      <p className="mt-1 text-xs text-gray-600">
-        空欄なら端まで。「0042」でも「42」でも構いません。
-      </p>
-
-      <div className="mt-3">
-        <label className="block text-sm font-medium" htmlFor="category">
-          分類
-        </label>
-        <select
+      <FieldGroup header="範囲" footer="空欄なら端まで。「0042」でも「42」でも構いません。">
+        <Field
+          id="from"
+          label="開始コード"
+          inputMode="numeric"
+          placeholder="0001"
+          value={from}
+          onChange={(e) => setFrom(e.target.value)}
+        />
+        <Field
+          id="to"
+          label="終了コード"
+          inputMode="numeric"
+          placeholder="0050"
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+        />
+        <SelectField
           id="category"
-          className="mt-1 w-full rounded border border-gray-300 px-2 py-2 text-base"
+          label="分類"
           value={category}
           onChange={(e) => setCategory(e.target.value)}
         >
@@ -129,76 +119,65 @@ export default function AdminLabels() {
               {c}
             </option>
           ))}
-        </select>
-      </div>
+        </SelectField>
+      </FieldGroup>
 
-      <p className="mt-3 text-xs text-gray-600">
+      {/* 何が含まれ、何が含まれないかは刷る前に読ませる。刷ってから
+          「廃棄済みが入っていない」と気付いても、シールは戻らない。 */}
+      <p className="mt-3 px-4 text-[13px] leading-snug text-label-2">
         廃棄済みは含まれません。自由利用品は含まれます。
       </p>
 
-      {error !== '' && (
-        <p role="alert" className="mt-4 text-sm text-red-700">
-          {error}
-        </p>
-      )}
+      {error !== '' && <Alert>{error}</Alert>}
 
-      {(invalidFrom || invalidTo) && (
-        <p role="alert" className="mt-4 text-sm text-red-700">
-          備品コードは1以上の数字で指定してください。
-        </p>
-      )}
+      {(invalidFrom || invalidTo) && <Alert>備品コードは1以上の数字で指定してください。</Alert>}
 
-      {reversed && (
-        <p role="alert" className="mt-4 text-sm text-red-700">
-          備品コードの範囲が逆です。
-        </p>
-      )}
+      {reversed && <Alert>備品コードの範囲が逆です。</Alert>}
 
       {items !== null && error === '' && !invalidFrom && !invalidTo && !reversed && (
-        <section className="mt-4">
-          <p>
+        <>
+          <p className="mt-6 px-4 text-[15px]">
             対象: <strong>{targets.length}件</strong>
           </p>
 
           {targets.length === 0 ? (
-            <p className="mt-2 text-sm text-gray-600">
-              条件に合う備品がありません。範囲か分類を見直してください。
-            </p>
+            <Empty
+              title="条件に合う備品がありません"
+              hint="範囲か分類を見直してください。0件のまま刷ると、ラベルシールが1枚無駄になります。"
+            />
           ) : (
             <>
               {/* 何が刷られるかを確定前に見せる。ラベルシールは刷り直しが効かない。 */}
-              <ul className="mt-2 max-h-64 divide-y divide-gray-200 overflow-y-auto border-y border-gray-200">
-                {targets.map((it) => (
-                  <li key={it.id} className="flex gap-2 py-1 text-sm">
-                    <span className="font-mono text-gray-600">{it.code}</span>
-                    <span>{it.name}</span>
-                  </li>
-                ))}
-              </ul>
+              <Card>
+                <ul className="max-h-72 divide-y divide-separator overflow-y-auto">
+                  {targets.map((it) => (
+                    <li key={it.id} className="flex gap-3 px-4 py-2 text-[15px]">
+                      <span className="font-mono tabular-nums text-label-2">{it.code}</span>
+                      <span className="truncate">{it.name}</span>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
 
               {/*
                 リンクで開く。fetch して組み立て直さないのは、ブラウザの
                 PDFビューアで確認してからそのまま印刷できるようにするため。
               */}
-              <a
-                className="mt-4 inline-block rounded bg-blue-700 px-4 py-3 text-white"
-                href={`/api/labels.pdf${labelQuery(from, to, category)}`}
-                target="_blank"
-                rel="noopener"
-              >
-                PDFを開く（{targets.length}件）
-              </a>
+              <div className="mt-6">
+                <ButtonLink
+                  to={`/api/labels.pdf${labelQuery(from, to, category)}`}
+                  full
+                  target="_blank"
+                  rel="noopener"
+                >
+                  PDFを開く（{targets.length}件）
+                </ButtonLink>
+              </div>
             </>
           )}
-        </section>
+        </>
       )}
-
-      <div className="mt-6">
-        <Link className="text-blue-700 underline" to="/admin/items">
-          マスタ管理へ
-        </Link>
-      </div>
-    </main>
+    </Screen>
   )
 }
 
