@@ -267,8 +267,12 @@ npm run dev            # コンテナ内（web/ で）
 | 本番を停止 | `make prod-down` | `.\make.ps1 prod-down` |
 | 本番のログ | `make prod-logs` | `.\make.ps1 prod-logs` |
 | 本番の状態・ヘルスチェック結果 | `make prod-ps` | `.\make.ps1 prod-ps` |
+| 最初の admin を作る | `make create-admin LOGIN_ID=... NAME=...` | `.\make.ps1 create-admin -LoginId ... -Name ...` |
+| バックアップ | `make backup` | `.\make.ps1 backup` |
+| 復元 | `make restore FILE=...` | `.\make.ps1 restore -File ...` |
 
-`create-admin` は、**対象の機能を実装した時に足す。**
+**運用操作は全てバイナリのサブコマンド越しに呼ぶ。** 本番イメージは scratch で、
+シェルも `sqlite3` も入っていない。`docker compose exec app sh -c ...` は成立しない。
 動かないターゲットを先に置くと、壊れているのか未実装なのか区別できなくなる。
 
 **タスクを増やすときは `Makefile` と `make.ps1` の両方に追加する。** 片方だけ更新すると、環境を移った瞬間に動かなくなる。
@@ -379,6 +383,21 @@ Linux本番では動いて開発機だけで壊れる、という最悪の再現
 docker compose exec app /server -backup /data/backup.db
 docker compose cp app:/data/backup.db ./backup.db
 ```
+
+**復元も同じ理由で `-restore` に持たせる。** ホストから `cp` して `chown` する手順は、
+シェルが無いぶん成立しない。戻す側を手順書に逃がすと、実際に必要になった日に
+「手順どおりにやったのに動かない」ところから始めることになる。
+
+```
+docker compose stop
+docker compose cp ./backup.db app:/data/restore-src.db
+docker compose run --rm app -restore /data/restore-src.db   # 使い捨てのコンテナ
+docker compose start
+```
+
+`-restore` は **上書きより先に戻す元を検証し**、`-wal` / `-shm` ごと置き換え、
+戻した後にマイグレーションと件数の確認まで行う。**サーバを止めてから実行すること。**
+動いているサーバの足元でファイルを差し替えると壊れる。
 
 「バイナリ1つで完結させる」という方針とも一致する。**復元できることまで確認して初めて完了。**
 

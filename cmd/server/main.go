@@ -4,6 +4,7 @@
 //
 //	-create-admin   最初の admin を作る（Webからは作れない）
 //	-backup <path>  稼働中でも一貫したDBのコピーを作る
+//	-restore <path> バックアップから戻す（__サーバを止めてから実行する__）
 //	-healthcheck    自分自身の /healthz を叩く（Compose のヘルスチェック用）
 //
 // デプロイは「バイナリ1つ + SQLiteファイル1つ」で完結させる方針のため、
@@ -42,7 +43,8 @@ func main() {
 		name          = flag.String("name", "", "-create-admin で作るユーザーの表示名")
 		email         = flag.String("email", "", "-create-admin で作るユーザーのメールアドレス（省略可）")
 
-		backupPath = flag.String("backup", "", "指定したパスにDBのコピーを作って終了する")
+		backupPath  = flag.String("backup", "", "指定したパスにDBのコピーを作って終了する")
+		restorePath = flag.String("restore", "", "指定したバックアップからDBを戻して終了する（サーバを止めてから実行する）")
 
 		doHealthcheck = flag.Bool("healthcheck", false, "自分自身の /healthz を叩いて終了する（コンテナのヘルスチェック用）")
 	)
@@ -77,6 +79,18 @@ func main() {
 	}
 
 	ctx := context.Background()
+
+	// 復元は DB を開く前に捌く。
+	//
+	// ここより後ろに置くと、__戻す先を開いた時点で空のDBと -wal が作られ、__
+	// __これから消すファイルを自分で用意することになる。__
+	// マイグレーションも、戻した後の中身に対して runRestore が改めて流す。
+	if *restorePath != "" {
+		if err := runRestore(ctx, *restorePath, cfg.DBPath, os.Stdout); err != nil {
+			log.Fatalf("restore: %v", err)
+		}
+		return
+	}
 
 	// 起動時に一度だけ接続する。失敗したら起動しない。
 	// 接続できないまま起動すると、リクエストが来て初めて気付くことになる。

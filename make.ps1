@@ -10,8 +10,17 @@
 param(
     [Parameter(Position = 0)]
     [ValidateSet('help', 'up', 'down', 'sh', 'logs', 'fmt', 'test', 'test-web',
-        'prod-build', 'prod-up', 'prod-down', 'prod-logs', 'prod-ps')]
-    [string]$Task = 'help'
+        'prod-build', 'prod-up', 'prod-down', 'prod-logs', 'prod-ps',
+        'create-admin', 'backup', 'restore')]
+    [string]$Task = 'help',
+
+    # create-admin 用。パスワードは受け取らない（生成して一度だけ表示する）
+    [string]$LoginId,
+    [string]$Name,
+    [string]$Email,
+
+    # restore 用。戻す元のバックアップファイル
+    [string]$File
 )
 
 # $ErrorActionPreference = 'Stop' は設定しない。
@@ -48,6 +57,12 @@ switch ($Task) {
         Write-Host '  prod-down      本番を停止する'
         Write-Host '  prod-logs      本番のログを追う'
         Write-Host '  prod-ps        本番の状態とヘルスチェックの結果を見る'
+        Write-Host ''
+        Write-Host '  create-admin   最初の admin を作る'
+        Write-Host '                   .\make.ps1 create-admin -LoginId yamada -Name 山田'
+        Write-Host '  backup         バックアップを取り、ホストへ取り出す'
+        Write-Host '  restore        バックアップから戻す（サーバを止めて実行する）'
+        Write-Host '                   .\make.ps1 restore -File .\backup-2026-08-27.db'
     }
     'up'    { docker @ComposeArgs up -d }
     'down'  { docker @ComposeArgs down }
@@ -69,6 +84,51 @@ switch ($Task) {
     'prod-down'  { docker @ProdArgs down }
     'prod-logs'  { docker @ProdArgs logs -f }
     'prod-ps'    { docker @ProdArgs ps }
+
+    # 最初の admin を作る。これが無いと誰もログインできない。
+    # パスワードは引数で受け取らない。生成して一度だけ表示する
+    # （履歴と ps に平文を残さないため）。
+    'create-admin' {
+        if (-not $LoginId -or -not $Name) {
+            Write-Host '使い方: .\make.ps1 create-admin -LoginId yamada -Name 山田 [-Email a@b.c]'
+            exit 1
+        }
+        $a = @('exec', 'app', '/server', '-create-admin', '-login-id', $LoginId, '-name', $Name)
+        if ($Email) { $a += @('-email', $Email) }
+        docker @ProdArgs @a
+    }
+
+    # 稼働中でも一貫したコピーを1ファイル作る（VACUUM INTO）。上書きはしない。
+    # 取り出すところまでやる。ボリュームに置いたままでは、
+    # ディスクごと失われた時に一緒に消える。
+    'backup' {
+        $stamp = Get-Date -Format 'yyyy-MM-dd'
+        docker @ProdArgs exec app /server -backup "/data/backup-$stamp.db"
+        if ($?) {
+            docker @ProdArgs cp "app:/data/backup-$stamp.db" "./backup-$stamp.db"
+            if ($?) { Write-Host "取り出しました: .\backup-$stamp.db" }
+        }
+    }
+
+    # バックアップから戻す。サーバを止めてから実行する。
+    # 動いているサーバの足元でファイルを差し替えると壊れる。
+    'restore' {
+        if (-not $File) {
+            Write-Host '使い方: .\make.ps1 restore -File .\backup-2026-08-27.db'
+            exit 1
+        }
+        if (-not (Test-Path $File)) {
+            Write-Host "$File が無い"
+            exit 1
+        }
+        docker @ProdArgs stop
+        if ($?) { docker @ProdArgs cp $File 'app:/data/restore-src.db' }
+        if ($?) { docker @ProdArgs run --rm app -restore /data/restore-src.db }
+        if ($?) {
+            docker @ProdArgs start
+            Write-Host '起動しました。ログインできることを確かめること。'
+        }
+    }
 }
 
 exit $LASTEXITCODE
