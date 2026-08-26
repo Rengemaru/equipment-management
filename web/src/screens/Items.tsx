@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link, useSearchParams } from 'react-router'
+import { useSearchParams } from 'react-router'
 
 import { errorMessage } from '../api/client'
 import { itemFilters, listItems } from '../api/items'
 import type { FilterOptions } from '../api/items'
 import { CONDITIONS, LOCATION_STATUSES } from '../api/types'
 import type { Condition, Item, LocationStatus } from '../api/types'
+import { Alert, Badge, Empty, Loading } from '../ui/Feedback'
+import { FieldGroup, SelectField } from '../ui/Field'
+import { LinkRow } from '../ui/List'
+import { Screen } from '../ui/Screen'
 
 /**
  * Items は備品の一覧・検索画面。
@@ -92,86 +96,101 @@ export default function Items() {
     update('q', queryInput)
   }
 
-  return (
-    <main className="mx-auto max-w-screen-sm p-4">
-      <h1 className="text-xl font-bold">備品一覧</h1>
 
+  // 絞り込みが1つでも掛かっているか。掛かっていない時に「条件を見直せ」と
+  // 出すと、そもそも登録が無いだけの人を条件探しに向かわせることになる。
+  const filtered =
+    query !== '' || category !== '' || location !== '' || condition !== '' || locationStatus !== ''
+
+  return (
+    <Screen title="備品一覧" back={{ to: '/', label: 'トップ' }}>
       <form className="mt-4" onSubmit={handleSearch} role="search">
-        <label className="block text-sm font-medium" htmlFor="q">
+        <label className="sr-only" htmlFor="q">
           品名・備品コード・型番で検索
         </label>
-        <div className="mt-1 flex gap-2">
+
+        {/* iOS の検索欄。枠線ではなく淡い地で表す。虫眼鏡は装飾ではなく、
+            「ここに打てば探せる」ことを文字より早く伝える。 */}
+        <div className="flex items-center gap-2 rounded-[10px] bg-fill px-2.5">
+          <SearchIcon />
           <input
             id="q"
             // type="search" にすると、スマートフォンのキーボードが
             // 改行ではなく「検索」になる。
             type="search"
+            placeholder="品名・備品コード・型番"
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
-            // text-base（16px）未満だと iOS が焦点を当てた瞬間に拡大する。
-            className="w-full rounded border border-gray-300 px-3 py-2 text-base"
+            className="min-w-0 flex-1 bg-transparent py-2.5 text-[17px] placeholder:text-label-3 focus:outline-none"
             value={queryInput}
             onChange={(e) => setQueryInput(e.target.value)}
           />
-          <button type="submit" className="shrink-0 rounded bg-blue-700 px-4 py-2 text-white">
+          {/* 送信ボタンは出したままにする。キーボードを閉じてから探し直す
+              人がいるため、Enter だけに頼らない。 */}
+          <button type="submit" className="shrink-0 py-2 pl-1 text-[17px] text-tint">
             検索
           </button>
         </div>
       </form>
 
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <Select
+      <FieldGroup header="絞り込み">
+        <SelectField
           id="category"
           label="分類"
           value={category}
-          options={options.categories}
-          onChange={(v) => update('category', v)}
-        />
-        <Select
+          onChange={(e) => update('category', e.target.value)}
+        >
+          <FilterOptionList options={options.categories} />
+        </SelectField>
+        <SelectField
           id="location"
           label="保管場所"
           value={location}
-          options={options.locations}
-          onChange={(v) => update('location', v)}
-        />
-        <Select
+          onChange={(e) => update('location', e.target.value)}
+        >
+          <FilterOptionList options={options.locations} />
+        </SelectField>
+        <SelectField
           id="condition"
           label="状態"
           value={condition}
-          options={CONDITIONS}
-          onChange={(v) => update('condition', v)}
-        />
-        <Select
+          onChange={(e) => update('condition', e.target.value)}
+        >
+          <FilterOptionList options={CONDITIONS} />
+        </SelectField>
+        <SelectField
           id="location_status"
           label="所在"
           value={locationStatus}
-          options={LOCATION_STATUSES}
-          onChange={(v) => update('location_status', v)}
-        />
-      </div>
+          onChange={(e) => update('location_status', e.target.value)}
+        >
+          <FilterOptionList options={LOCATION_STATUSES} />
+        </SelectField>
+      </FieldGroup>
 
-      {error !== '' && (
-        <p role="alert" className="mt-4 text-sm text-red-700">
-          {error}
-        </p>
-      )}
+      {error !== '' && <Alert>{error}</Alert>}
 
-      {error === '' && items === null && <p className="mt-4 text-sm text-gray-600">読み込み中…</p>}
+      {error === '' && items === null && <Loading />}
 
       {items !== null && (
         <>
-          <p className="mt-4 text-sm text-gray-600">{items.length}件</p>
+          {/* 件数は0でも出す。__「探した結果0件」と「まだ読み込んでいない」は__
+              __別のことで、区別が付かないと通信を疑うことになる。__ */}
+          <p className="mt-6 px-4 text-[13px] text-label-2">{items.length}件</p>
 
           {items.length === 0 ? (
-            <p className="mt-2">
-              該当する備品がありません。
-              <span className="block text-sm text-gray-600">
-                廃棄済みは既定で除いています。状態で「廃棄」を選ぶと表示されます。
-              </span>
-            </p>
+            <Empty
+              title="該当する備品がありません"
+              hint={
+                <>
+                  {filtered && <>絞り込みを外すと見つかるかもしれません。</>}
+                  廃棄済みは既定で除いています。状態で「廃棄」を選ぶと表示されます。
+                </>
+              }
+            />
           ) : (
-            <ul className="mt-2 divide-y divide-gray-200">
+            <ul className="mt-2 overflow-hidden rounded-group bg-card">
               {items.map((it) => (
                 <ItemRow key={it.id} item={it} />
               ))}
@@ -179,7 +198,21 @@ export default function Items() {
           )}
         </>
       )}
-    </main>
+    </Screen>
+  )
+}
+
+/** FilterOptionList は絞り込みの選択肢。先頭の空が「すべて」。 */
+function FilterOptionList({ options }: { options: readonly string[] }) {
+  return (
+    <>
+      <option value="">すべて</option>
+      {options.map((opt) => (
+        <option key={opt} value={opt}>
+          {opt}
+        </option>
+      ))}
+    </>
   )
 }
 
@@ -190,67 +223,47 @@ export default function Items() {
  * 隣の行を開くことになる。
  */
 function ItemRow({ item }: { item: Item }) {
+  const detail = [item.category, item.model, item.location].filter((v) => v !== '').join('・')
+
   return (
-    <li>
-      <Link className="block py-3" to={`/i/${item.code}`}>
-        <div className="flex items-baseline gap-2">
-          {/* 備品コードは等幅で出す。棚に貼ったラベルと見比べるため。 */}
-          <span className="font-mono text-sm text-gray-600">{item.code}</span>
-          <span className="font-medium text-blue-800 underline">{item.name}</span>
-        </div>
+    <LinkRow to={`/i/${item.code}`}>
+      <div className="flex items-center gap-2">
+        <span className="truncate text-[17px]">{item.name}</span>
 
-        <p className="mt-0.5 text-sm text-gray-600">
-          {[item.category, item.model, item.location].filter((v) => v !== '').join('・')}
-        </p>
+        {/* 良好・在庫は出さない。全ての行に付くと、注意すべき行が埋もれる。 */}
+        {item.condition !== '良好' && <Badge tone="warn">{item.condition}</Badge>}
+        {item.location_status !== '在庫' && <Badge tone="warn">{item.location_status}</Badge>}
+        {item.is_free_use && <Badge tone="info">自由利用品</Badge>}
+      </div>
 
-        <div className="mt-1 flex flex-wrap gap-1">
-          {/* 良好・在庫は出さない。全ての行に付くと、注意すべき行が埋もれる。 */}
-          {item.condition !== '良好' && <Badge tone="warn">{item.condition}</Badge>}
-          {item.location_status !== '在庫' && <Badge tone="warn">{item.location_status}</Badge>}
-          {item.is_free_use && <Badge tone="info">自由利用品</Badge>}
-        </div>
-      </Link>
-    </li>
+      <p className="mt-0.5 truncate text-[13px] text-label-2">
+        {/* 備品コードは等幅で出す。棚に貼ったラベルと見比べるため。 */}
+        <span className="font-mono tabular-nums">{item.code}</span>
+        {detail !== '' && (
+          <>
+            {' · '}
+            <span>{detail}</span>
+          </>
+        )}
+      </p>
+    </LinkRow>
   )
 }
 
-function Badge({ tone, children }: { tone: 'warn' | 'info'; children: string }) {
-  const color = tone === 'warn' ? 'bg-amber-100 text-amber-900' : 'bg-gray-100 text-gray-700'
-  return <span className={`rounded px-2 py-0.5 text-xs ${color}`}>{children}</span>
-}
-
-/** Select は絞り込みの1項目。空の選択肢が「指定なし」。 */
-function Select({
-  id,
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  id: string
-  label: string
-  value: string
-  options: readonly string[]
-  onChange: (value: string) => void
-}) {
+/** SearchIcon は検索欄の虫眼鏡。 */
+function SearchIcon() {
   return (
-    <div>
-      <label className="block text-sm font-medium" htmlFor={id}>
-        {label}
-      </label>
-      <select
-        id={id}
-        className="mt-1 w-full rounded border border-gray-300 px-2 py-2 text-base"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        <option value="">すべて</option>
-        {options.map((opt) => (
-          <option key={opt} value={opt}>
-            {opt}
-          </option>
-        ))}
-      </select>
-    </div>
+    <svg
+      viewBox="0 0 16 16"
+      className="h-4 w-4 shrink-0 text-label-3"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <circle cx="7" cy="7" r="5" />
+      <path d="M11 11l4 4" />
+    </svg>
   )
 }

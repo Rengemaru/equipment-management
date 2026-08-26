@@ -7,6 +7,9 @@ import { Link } from 'react-router'
  * __区切り線はカードの内側にだけ引き、左端は文字に合わせて下げる。__
  * カードの端まで引くと、行が独立した箱に見えて、まとまりが読み取れなくなる。
  *
+ * 中身は ul / li で組む。__見た目を変えても list の役割は保つ。__ div で
+ * 積むと、読み上げ環境で「何件あるか」「何番目か」が失われる。
+ *
  * header / footer は iOS の「グループの上の小さな見出し」と「下の注記」。
  * 注意書きはここに置く。本文に混ぜると、読み飛ばした人には無いのと同じになる。
  */
@@ -22,15 +25,32 @@ export function List({
   return (
     <section className="mt-6">
       {header !== undefined && (
-        <h2 className="px-4 pb-1.5 text-[13px] text-label-2 uppercase">{header}</h2>
+        <h2 className="px-4 pb-1.5 text-[13px] text-label-2">{header}</h2>
       )}
 
       {/* overflow-hidden で、先頭と末尾の行が角丸からはみ出さないようにする。 */}
-      <div className="overflow-hidden rounded-group bg-card">{children}</div>
+      <ul className="overflow-hidden rounded-group bg-card">{children}</ul>
 
       {footer !== undefined && (
         <div className="px-4 pt-1.5 text-[13px] leading-snug text-label-2">{footer}</div>
       )}
+    </section>
+  )
+}
+
+/**
+ * Card は List と同じ見た目で、中身がリストでないもの（長い文章など）。
+ *
+ * ul に段落を入れない。役割と中身が食い違うと、読み上げが「1項目のリスト」と
+ * 言ってから本文を読むことになる。
+ */
+export function Card({ header, children }: { header?: string; children: ReactNode }) {
+  return (
+    <section className="mt-6">
+      {header !== undefined && (
+        <h2 className="px-4 pb-1.5 text-[13px] text-label-2">{header}</h2>
+      )}
+      <div className="overflow-hidden rounded-group bg-card">{children}</div>
     </section>
   )
 }
@@ -54,14 +74,12 @@ export function Row({ label, value }: { label: string; value: ReactNode }) {
   const empty = value === '' || value === null || value === undefined
 
   return (
-    <div className={`flex min-h-11 items-center gap-4 px-4 py-2.5 ${separator}`}>
+    <li className={`flex min-h-11 items-center gap-4 px-4 py-2.5 ${separator}`}>
       <span className="shrink-0 text-[17px]">{label}</span>
-      <span
-        className={`ml-auto text-right text-[17px] ${empty ? 'text-label-3' : 'text-label-2'}`}
-      >
+      <span className={`ml-auto text-right text-[17px] ${empty ? 'text-label-3' : 'text-label-2'}`}>
         {empty ? '—' : value}
       </span>
-    </div>
+    </li>
   )
 }
 
@@ -82,21 +100,18 @@ export function LinkRow({
   value?: ReactNode
 }) {
   return (
-    <Link
-      to={to}
-      className={`flex min-h-11 items-center gap-3 px-4 py-2.5 active:bg-fill ${separator}`}
-    >
-      <div className="min-w-0 flex-1">{children}</div>
-      {value !== undefined && (
-        <span className="shrink-0 text-[17px] text-label-2">{value}</span>
-      )}
-      <DisclosureChevron />
-    </Link>
+    <li className={separator}>
+      <Link to={to} className="flex min-h-11 items-center gap-3 px-4 py-2.5 active:bg-fill">
+        <div className="min-w-0 flex-1">{children}</div>
+        {value !== undefined && <span className="shrink-0 text-[17px] text-label-2">{value}</span>}
+        <DisclosureChevron />
+      </Link>
+    </li>
   )
 }
 
 /**
- * ButtonRow は押すとその場で何かが起きる行（削除・再発行など）。
+ * ButtonRow は押すとその場で何かが起きる行（無効化・再発行など）。
  *
  * 行き先が無いので山形は出さない。__出すと「次の画面へ進む」に見え、__
  * __押した瞬間に処理が走ることが伝わらない。__
@@ -115,14 +130,16 @@ export function ButtonRow({
   const color = tone === 'danger' ? 'text-danger' : 'text-tint'
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={`flex min-h-11 w-full items-center px-4 py-2.5 text-left text-[17px] ${color} active:bg-fill disabled:text-label-3 ${separator}`}
-    >
-      {children}
-    </button>
+    <li className={separator}>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        className={`flex min-h-11 w-full items-center px-4 py-2.5 text-left text-[17px] ${color} active:bg-fill disabled:text-label-3`}
+      >
+        {children}
+      </button>
+    </li>
   )
 }
 
