@@ -1,11 +1,15 @@
 import { useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
-import { Link } from 'react-router'
 
 import { errorMessage } from '../api/client'
 import { createItem, uploadPhoto } from '../api/items'
 import type { Item, ItemAttributes } from '../api/types'
+import { Button, ButtonLink } from '../ui/Button'
+import { Alert, Notice } from '../ui/Feedback'
+import { FieldGroup } from '../ui/Field'
 import { ItemFields, emptyAttributes } from '../ui/ItemFields'
+import { Card, LinkRow, List } from '../ui/List'
+import { Screen } from '../ui/Screen'
 
 /**
  * AdminItemNew は備品の登録フォーム（運営のみ）。
@@ -80,100 +84,109 @@ export default function AdminItemNew() {
 
   if (created !== null) {
     return (
-      <main className="mx-auto max-w-screen-sm p-4">
-        <h1 className="text-xl font-bold">登録しました</h1>
-
-        <p className="mt-4 text-sm text-gray-600">備品コード</p>
-        {/* ラベルを刷る時に要る番号。目立つ形で出す。 */}
-        <p className="font-mono text-3xl">{created.code}</p>
-        <p className="mt-1">{created.name}</p>
+      <Screen title="登録しました" back={{ to: '/admin/items', label: 'マスタ管理' }}>
+        {/* ラベルを刷る時に要る番号。__この応答でしか手に入らないので__
+            __目立つ形で出す。__ */}
+        <Card header="備品コード">
+          <div className="px-4 py-5 text-center">
+            <p className="font-mono text-[44px] leading-none font-semibold tabular-nums">
+              {created.code}
+            </p>
+            <p className="mt-2 text-[15px] text-label-2">{created.name}</p>
+          </div>
+        </Card>
 
         {photoError !== '' && (
-          <div className="mt-4 rounded bg-amber-50 p-3">
-            <p role="alert" className="text-sm text-amber-900">
-              備品は登録されましたが、写真の添付に失敗しました: {photoError}
-            </p>
+          <>
+            <Notice tone="warn">
+              <span role="alert">
+                備品は登録されましたが、写真の添付に失敗しました: {photoError}
+              </span>
+            </Notice>
+
+            {/* __登録はやり直させない。__ 送り直すと同じ備品が2件でき、
+                採番が1つ無駄になる（番号は再利用しない）。 */}
             {photo !== null && (
-              <button
-                className="mt-2 rounded border border-amber-300 px-3 py-1 text-sm"
-                onClick={() => void attachPhoto(created, photo)}
-              >
-                写真を送り直す
-              </button>
+              <div className="mt-3">
+                <Button tone="tinted" full onClick={() => void attachPhoto(created, photo)}>
+                  写真を送り直す
+                </Button>
+              </div>
             )}
-          </div>
+          </>
         )}
 
         {created.photo_url !== '' && (
-          <img className="mt-4 w-full rounded" src={created.photo_url} alt={`${created.name}の写真`} />
+          <img
+            className="mt-6 w-full rounded-group"
+            src={created.photo_url}
+            alt={`${created.name}の写真`}
+          />
         )}
 
-        <div className="mt-6 flex flex-wrap gap-3">
-          <button className="rounded bg-blue-700 px-4 py-2 text-white" onClick={startNext}>
+        <div className="mt-6">
+          <Button full onClick={startNext}>
             続けて登録する
-          </button>
-          <Link className="self-center text-blue-700 underline" to={`/i/${created.code}`}>
-            この備品を見る
-          </Link>
-          <Link className="self-center text-blue-700 underline" to="/admin/items">
-            マスタ管理へ
-          </Link>
+          </Button>
         </div>
-      </main>
+
+        <List>
+          <LinkRow to={`/i/${created.code}`}>
+            <span className="text-[17px]">この備品を見る</span>
+          </LinkRow>
+          <LinkRow to="/admin/items">
+            <span className="text-[17px]">マスタ管理へ</span>
+          </LinkRow>
+        </List>
+      </Screen>
     )
   }
 
   return (
-    <main className="mx-auto max-w-screen-sm p-4">
-      <h1 className="text-xl font-bold">備品を登録</h1>
-      <p className="mt-1 text-sm text-gray-600">
+    <Screen title="備品を登録" back={{ to: '/admin/items', label: 'マスタ管理' }}>
+      <p className="mt-1 px-4 text-[13px] leading-snug text-label-2">
         備品コードは登録時に自動で採番されます。入力は要りません。
       </p>
 
-      <form className="mt-4 space-y-3" onSubmit={(e) => void handleSubmit(e)}>
+      <form onSubmit={(e) => void handleSubmit(e)}>
         <ItemFields attrs={attrs} onChange={setAttrs} />
 
-        <div>
-          <label className="block text-sm font-medium" htmlFor="photo">
-            写真
-          </label>
-          <input
-            id="photo"
-            ref={fileRef}
-            type="file"
-            // スマートフォンでその場で撮れるようにする。棚の前で登録する
-            // 使い方を想定している。撮影に限定はしない（既存の画像も選べる）。
-            accept="image/jpeg,image/png"
-            capture="environment"
-            className="mt-1 w-full text-sm"
-            onChange={(e: ChangeEvent<HTMLInputElement>) =>
-              setPhoto(e.target.files?.[0] ?? null)
-            }
-          />
-          <p className="mt-1 text-xs text-gray-600">JPEG か PNG。10MBまで。</p>
-        </div>
+        <FieldGroup header="写真" footer="JPEG か PNG。10MBまで。">
+          <div className="px-4 py-3">
+            <label className="block text-[13px] text-label-2" htmlFor="photo">
+              写真
+            </label>
+            <input
+              id="photo"
+              ref={fileRef}
+              type="file"
+              // スマートフォンでその場で撮れるようにする。棚の前で登録する
+              // 使い方を想定している。撮影に限定はしない（既存の画像も選べる）。
+              accept="image/jpeg,image/png"
+              capture="environment"
+              className="mt-1.5 w-full text-[15px] file:mr-3 file:rounded-full file:border-0 file:bg-fill file:px-3 file:py-1.5 file:text-[15px] file:text-tint"
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setPhoto(e.target.files?.[0] ?? null)}
+            />
+          </div>
+        </FieldGroup>
 
-        {error !== '' && (
-          <p role="alert" className="text-sm text-red-700">
-            {error}
-          </p>
-        )}
+        {error !== '' && <Alert>{error}</Alert>}
 
-        <div className="flex gap-2">
-          <button
+        <div className="mt-6 space-y-3">
+          <Button
             type="submit"
+            full
             // 二重送信を止める。押し直すと同じ備品が2件でき、
             // 採番が1つ無駄になる（番号は再利用しない）。
             disabled={saving}
-            className="rounded bg-blue-700 px-4 py-3 text-white disabled:bg-gray-400"
           >
             {saving ? '登録しています…' : '登録する'}
-          </button>
-          <Link className="self-center px-2 text-blue-700 underline" to="/admin/items">
+          </Button>
+          <ButtonLink to="/admin/items" tone="plain" full>
             やめる
-          </Link>
+          </ButtonLink>
         </div>
       </form>
-    </main>
+    </Screen>
   )
 }

@@ -1,5 +1,6 @@
 import { CONDITIONS, LOCATION_STATUSES, OWNERS } from '../api/types'
 import type { ItemAttributes } from '../api/types'
+import { Field, FieldGroup, SelectField, StackedField, SwitchField } from './Field'
 
 /**
  * ItemFields は備品の入力欄一式。
@@ -29,80 +30,99 @@ export function ItemFields({
 
   return (
     <>
-      <TextField
-        id={id('name')}
-        label="品名"
-        value={attrs.name}
-        onChange={(v) => set('name', v)}
-        required
-      />
-      <TextField
-        id={id('category')}
-        label="分類"
-        value={attrs.category}
-        onChange={(v) => set('category', v)}
-        hint="空欄なら「未分類」になります"
-      />
-      <TextField
-        id={id('model')}
-        label="型番"
-        value={attrs.model}
-        onChange={(v) => set('model', v)}
-      />
-      <TextField
-        id={id('location')}
-        label="保管場所"
-        value={attrs.location}
-        onChange={(v) => set('location', v)}
-      />
+      <FieldGroup footer="分類が空欄なら「未分類」になります。">
+        <Field
+          id={id('name')}
+          label="品名"
+          required
+          value={attrs.name}
+          onChange={(e) => set('name', e.target.value)}
+        />
+        <Field
+          id={id('category')}
+          label="分類"
+          value={attrs.category}
+          onChange={(e) => set('category', e.target.value)}
+        />
+        <Field
+          id={id('model')}
+          label="型番"
+          value={attrs.model}
+          onChange={(e) => set('model', e.target.value)}
+        />
+        <Field
+          id={id('location')}
+          label="保管場所"
+          value={attrs.location}
+          onChange={(e) => set('location', e.target.value)}
+        />
+      </FieldGroup>
 
-      <SelectField
-        id={id('owner')}
-        label="所有"
-        value={attrs.owner}
-        options={OWNERS}
-        onChange={(v) => set('owner', v as ItemAttributes['owner'])}
-      />
-      {/* 廃棄も状態の1つ。削除ではないため、ここで指定する。 */}
-      <SelectField
-        id={id('condition')}
-        label="状態"
-        value={attrs.condition}
-        options={CONDITIONS}
-        onChange={(v) => set('condition', v as ItemAttributes['condition'])}
-      />
-      <SelectField
-        id={id('location_status')}
-        label="所在"
-        value={attrs.location_status}
-        options={LOCATION_STATUSES}
-        onChange={(v) => set('location_status', v as ItemAttributes['location_status'])}
-      />
+      <FieldGroup>
+        <SelectField
+          id={id('owner')}
+          label="所有"
+          value={attrs.owner}
+          onChange={(e) => set('owner', e.target.value as ItemAttributes['owner'])}
+        >
+          <Options options={OWNERS} />
+        </SelectField>
+
+        {/* 廃棄も状態の1つ。削除ではないため、ここで指定する。 */}
+        <SelectField
+          id={id('condition')}
+          label="状態"
+          value={attrs.condition}
+          onChange={(e) => set('condition', e.target.value as ItemAttributes['condition'])}
+        >
+          <Options options={CONDITIONS} />
+        </SelectField>
+
+        <SelectField
+          id={id('location_status')}
+          label="所在"
+          value={attrs.location_status}
+          onChange={(e) =>
+            set('location_status', e.target.value as ItemAttributes['location_status'])
+          }
+        >
+          <Options options={LOCATION_STATUSES} />
+        </SelectField>
+      </FieldGroup>
 
       {/* 自由利用品は貸出フローから完全に除外される。追跡対象を減らすことが
           遵守率を上げる最短経路（CLAUDE.md）。何が起きるかを書き添える。 */}
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          className="size-4"
+      <FieldGroup footer="自由利用品にすると、貸出の記録を求めなくなります。">
+        <SwitchField
+          id={id('is_free_use')}
+          label="自由利用品にする（貸出の記録を求めない）"
           checked={attrs.is_free_use}
-          onChange={(e) => set('is_free_use', e.target.checked)}
+          onChange={(v) => set('is_free_use', v)}
         />
-        自由利用品にする（貸出の記録を求めない）
-      </label>
+      </FieldGroup>
 
-      <div>
-        <label className="block text-sm font-medium" htmlFor={id('note')}>
-          備考
-        </label>
-        <textarea
+      <FieldGroup>
+        <StackedField
           id={id('note')}
-          rows={2}
-          className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-base"
+          label="備考"
+          multiline
           value={attrs.note}
           onChange={(e) => set('note', e.target.value)}
         />
-      </div>
+      </FieldGroup>
+    </>
+  )
+}
+
+/** Options は選択肢を並べる。 */
+function Options({ options }: { options: readonly string[] }) {
+  return (
+    <>
+      {options.map((opt) => (
+        <option key={opt} value={opt}>
+          {opt}
+        </option>
+      ))}
     </>
   )
 }
@@ -120,71 +140,4 @@ export function emptyAttributes(): ItemAttributes {
     location_status: '在庫',
     note: '',
   }
-}
-
-export function TextField({
-  id,
-  label,
-  value,
-  onChange,
-  required,
-  hint,
-}: {
-  id: string
-  label: string
-  value: string
-  onChange: (value: string) => void
-  required?: boolean
-  hint?: string
-}) {
-  return (
-    <div>
-      <label className="block text-sm font-medium" htmlFor={id}>
-        {label}
-      </label>
-      <input
-        id={id}
-        required={required}
-        // text-base（16px）未満だと iOS が焦点を当てた瞬間に拡大する。
-        className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-base"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      />
-      {hint !== undefined && <p className="mt-1 text-xs text-gray-600">{hint}</p>}
-    </div>
-  )
-}
-
-export function SelectField({
-  id,
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  id: string
-  label: string
-  value: string
-  options: readonly string[]
-  onChange: (value: string) => void
-}) {
-  return (
-    <div>
-      <label className="block text-sm font-medium" htmlFor={id}>
-        {label}
-      </label>
-      <select
-        id={id}
-        className="mt-1 w-full rounded border border-gray-300 px-2 py-2 text-base"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        {options.map((opt) => (
-          <option key={opt} value={opt}>
-            {opt}
-          </option>
-        ))}
-      </select>
-    </div>
-  )
 }

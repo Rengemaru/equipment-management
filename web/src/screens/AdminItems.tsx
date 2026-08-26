@@ -5,7 +5,12 @@ import { Link, useSearchParams } from 'react-router'
 import { errorMessage } from '../api/client'
 import { listItems, updateItem } from '../api/items'
 import type { Item, ItemAttributes } from '../api/types'
+import { Button } from '../ui/Button'
+import { Alert, Badge, Loading } from '../ui/Feedback'
+import { FieldGroup, SwitchField } from '../ui/Field'
 import { ItemFields } from '../ui/ItemFields'
+import { LinkRow, List } from '../ui/List'
+import { Screen } from '../ui/Screen'
 
 /**
  * AdminItems は備品マスタの管理画面（運営のみ）。
@@ -63,105 +68,105 @@ export default function AdminItems() {
   }, [])
 
   return (
-    <main className="mx-auto max-w-screen-sm p-4">
-      <h1 className="text-xl font-bold">備品マスタ管理</h1>
-
-      <div className="mt-3 flex flex-wrap items-center gap-3">
-        <Link className="rounded bg-blue-700 px-4 py-2 text-white" to="/admin/items/new">
-          備品を登録
-        </Link>
-        <Link className="text-blue-700 underline" to="/admin/items/import">
-          CSVで一括登録
-        </Link>
-        <Link className="text-blue-700 underline" to="/admin/labels">
-          QRラベルの印刷
-        </Link>
-      </div>
+    <Screen title="備品マスタ管理" back={{ to: '/', label: 'トップ' }}>
+      <List>
+        <LinkRow to="/admin/items/new">
+          <span className="text-[17px]">備品を登録</span>
+        </LinkRow>
+        <LinkRow to="/admin/items/import">
+          <span className="text-[17px]">CSVで一括登録</span>
+        </LinkRow>
+        <LinkRow to="/admin/labels">
+          <span className="text-[17px]">QRラベルの印刷</span>
+        </LinkRow>
+      </List>
 
       <form
-        className="mt-4"
+        className="mt-6"
         role="search"
         onSubmit={(e: FormEvent<HTMLFormElement>) => {
           e.preventDefault()
           update('q', queryInput)
         }}
       >
-        <label className="block text-sm font-medium" htmlFor="q">
+        <label className="sr-only" htmlFor="q">
           品名・備品コード・型番で検索
         </label>
-        <div className="mt-1 flex gap-2">
+        <div className="flex items-center gap-2 rounded-[10px] bg-fill px-2.5">
           <input
             id="q"
             type="search"
+            placeholder="品名・備品コード・型番"
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
-            className="w-full rounded border border-gray-300 px-3 py-2 text-base"
+            className="min-w-0 flex-1 bg-transparent py-2.5 text-[17px] placeholder:text-label-3 focus:outline-none"
             value={queryInput}
             onChange={(e) => setQueryInput(e.target.value)}
           />
-          <button type="submit" className="shrink-0 rounded bg-blue-700 px-4 py-2 text-white">
+          <button type="submit" className="shrink-0 py-2 pl-1 text-[17px] text-tint">
             検索
           </button>
         </div>
       </form>
 
-      <label className="mt-3 flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          className="size-4"
+      <FieldGroup>
+        <SwitchField
+          id="include-discarded"
+          label="廃棄済みも表示する"
           checked={includeDiscarded}
-          onChange={(e) => update('include_discarded', e.target.checked ? '1' : '')}
+          onChange={(v) => update('include_discarded', v ? '1' : '')}
         />
-        廃棄済みも表示する
-      </label>
+      </FieldGroup>
 
-      {error !== '' && (
-        <p role="alert" className="mt-4 text-sm text-red-700">
-          {error}
-        </p>
-      )}
+      {error !== '' && <Alert>{error}</Alert>}
 
-      {error === '' && items === null && <p className="mt-4 text-sm text-gray-600">読み込み中…</p>}
+      {error === '' && items === null && <Loading />}
 
       {items !== null && (
         <>
-          <p className="mt-4 text-sm text-gray-600">{items.length}件</p>
+          <p className="mt-6 px-4 text-[13px] text-label-2">{items.length}件</p>
 
-          <ul className="mt-2 divide-y divide-gray-200">
+          <ul className="mt-2 space-y-3">
             {items.map((it) => (
-              <li key={it.id} className="py-3">
-                <div className="flex items-baseline gap-2">
-                  <span className="font-mono text-sm text-gray-600">{it.code}</span>
-                  <span className="font-medium">{it.name}</span>
-                </div>
+              <li key={it.id} className="overflow-hidden rounded-group bg-card">
+                <div className="px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-[17px]">{it.name}</span>
+                    {it.condition !== '良好' && <Badge tone="warn">{it.condition}</Badge>}
+                    {it.location_status !== '在庫' && (
+                      <Badge tone="warn">{it.location_status}</Badge>
+                    )}
+                    {it.is_free_use && <Badge tone="info">自由利用品</Badge>}
+                  </div>
 
-                <p className="mt-0.5 text-sm text-gray-600">
-                  {[it.category, it.model, it.location].filter((v) => v !== '').join('・')}
-                </p>
-
-                <div className="mt-1 flex flex-wrap items-center gap-1">
-                  {it.condition !== '良好' && <Badge>{it.condition}</Badge>}
-                  {it.location_status !== '在庫' && <Badge>{it.location_status}</Badge>}
-                  {it.is_free_use && <Badge>自由利用品</Badge>}
-                </div>
-
-                {saved === it.code && editing !== it.code && (
-                  <p role="status" className="mt-2 text-sm text-green-800">
-                    保存しました
+                  <p className="mt-0.5 truncate text-[13px] text-label-2">
+                    <span className="font-mono tabular-nums">{it.code}</span>
+                    {[it.category, it.model, it.location].filter((v) => v !== '').length > 0 && (
+                      <>
+                        {' · '}
+                        <span>
+                          {[it.category, it.model, it.location].filter((v) => v !== '').join('・')}
+                        </span>
+                      </>
+                    )}
                   </p>
-                )}
+
+                  {saved === it.code && editing !== it.code && (
+                    <p role="status" className="mt-1.5 text-[13px] text-tint">
+                      保存しました
+                    </p>
+                  )}
+                </div>
 
                 {editing === it.code ? (
-                  <EditForm
-                    item={it}
-                    onSaved={replaceItem}
-                    onCancel={() => setEditing('')}
-                  />
+                  <EditForm item={it} onSaved={replaceItem} onCancel={() => setEditing('')} />
                 ) : (
-                  <div className="mt-2 flex gap-3">
+                  // __削除の導線は置かない。__ 廃棄は状態で、行を消すと
+                  // 貸出履歴の参照先が消える（CLAUDE.md）。
+                  <div className="flex border-t border-separator">
                     <button
-                      className="rounded border border-gray-300 px-3 py-1 text-sm"
+                      className="min-h-11 flex-1 text-[17px] text-tint active:bg-fill"
                       onClick={() => {
                         setSaved('')
                         setEditing(it.code)
@@ -169,7 +174,10 @@ export default function AdminItems() {
                     >
                       編集
                     </button>
-                    <Link className="self-center text-sm text-blue-700 underline" to={`/i/${it.code}`}>
+                    <Link
+                      className="flex min-h-11 flex-1 items-center justify-center border-l border-separator text-[17px] text-tint active:bg-fill"
+                      to={`/i/${it.code}`}
+                    >
                       詳細
                     </Link>
                   </div>
@@ -179,7 +187,7 @@ export default function AdminItems() {
           </ul>
         </>
       )}
-    </main>
+    </Screen>
   )
 }
 
@@ -219,32 +227,22 @@ function EditForm({
   }
 
   return (
-    <form className="mt-3 space-y-3 rounded border border-gray-300 p-3" onSubmit={(e) => void handleSubmit(e)}>
+    // 一覧の地の色に戻す。カードの中でさらにカードを重ねる形になるため、
+    // 同じ白のままだと入力欄のまとまりが見えなくなる。
+    <form className="bg-bg px-3 pt-1 pb-4" onSubmit={(e) => void handleSubmit(e)}>
       {/* 入力欄は登録フォームと同じものを使う。別々に書くと、項目を足した時に
           片方だけ直され、経路によって入る値が変わる。 */}
       <ItemFields attrs={attrs} onChange={setAttrs} idPrefix={item.code} />
 
-      {error !== '' && (
-        <p role="alert" className="text-sm text-red-700">
-          {error}
-        </p>
-      )}
+      {error !== '' && <Alert>{error}</Alert>}
 
-      <div className="flex gap-2">
-        <button
-          type="submit"
-          disabled={saving}
-          className="rounded bg-blue-700 px-4 py-2 text-white disabled:bg-gray-400"
-        >
+      <div className="mt-6 space-y-3">
+        <Button type="submit" full disabled={saving}>
           {saving ? '保存しています…' : '保存'}
-        </button>
-        <button
-          type="button"
-          className="rounded border border-gray-300 px-4 py-2"
-          onClick={onCancel}
-        >
+        </Button>
+        <Button type="button" tone="plain" full onClick={onCancel}>
           キャンセル
-        </button>
+        </Button>
       </div>
     </form>
   )
@@ -263,8 +261,4 @@ function toAttributes(item: Item): ItemAttributes {
     location_status: item.location_status,
     note: item.note,
   }
-}
-
-function Badge({ children }: { children: string }) {
-  return <span className="rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-900">{children}</span>
 }
