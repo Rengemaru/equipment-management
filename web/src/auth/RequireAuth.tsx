@@ -50,8 +50,12 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   // サーバも同じことをしている（`/api/me` 等以外を403で止める）。
   // こちらは、画面が「権限がありません」だけを出して行き先を示さない
   // 状態にしないため。__UIだけで縛らない。__
+  //
+  // ここでも元いた場所を next で持たせる。持たせないと、初期パスワードの
+  // ままの人がQRを読んだ時に、変更を終えた瞬間トップへ出ることになる。
   if (auth.user.must_change_password && location.pathname !== passwordPath) {
-    return <Navigate to={passwordPath} replace />
+    const next = encodeURIComponent(location.pathname + location.search)
+    return <Navigate to={`${passwordPath}?next=${next}`} replace />
   }
 
   return <>{children}</>

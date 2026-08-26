@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { useNavigate } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 
 import { errorMessage } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
@@ -13,10 +13,15 @@ import { useAuth } from '../auth/AuthProvider'
  *
  * 変更すると他の端末のセッションは全て切れる。この端末はサーバが
  * 繋ぎ直すため、ログインし直す必要はない。
+ *
+ * `?next=` は Login と同じく __読むだけで解釈しない。__ 進む先は応答の
+ * redirect_to で返る。QRから来た新入部員をここで止めたまま終わらせると、
+ * 変更後にトップへ出てQRを読み直すことになる。
  */
 export default function PasswordChange() {
   const auth = useAuth()
   const navigate = useNavigate()
+  const [params] = useSearchParams()
 
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
@@ -44,7 +49,7 @@ export default function PasswordChange() {
 
     setSubmitting(true)
     try {
-      const redirectTo = await auth.changePassword(current, next)
+      const redirectTo = await auth.changePassword(current, next, params.get('next') ?? '')
       navigate(redirectTo, { replace: true })
     } catch (err) {
       setError(errorMessage(err))

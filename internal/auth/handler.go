@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"net/url"
 
 	"github.com/Rengemaru/equipment-management/internal/httpx"
 )
@@ -148,9 +149,12 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	// 初期パスワードのままなら、どこへ戻る予定でもパスワード変更へ送る。
 	// ここで通すと、変更しないまま使い続けられる。
+	//
+	// ただし __行き先は捨てずに持ち回す。__ 変更を終えてから元の場所へ返す
+	// （m1-spec §フロー 5→6）。
 	redirectTo := httpx.SafeRedirectPath(req.Next)
 	if user.MustChangePassword {
-		redirectTo = passwordChangePath
+		redirectTo = passwordChangePathWith(redirectTo)
 	}
 
 	httpx.JSON(w, http.StatusOK, loginResponse{
@@ -162,6 +166,25 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 // passwordChangePath は初期パスワードのままの利用者を送る先。
 // url-design.md の画面一覧に合わせる。
 const passwordChangePath = "/password"
+
+// passwordChangePathWith は復帰先を保ったままパスワード変更画面を指す。
+//
+// 初期パスワードのままの人も、変更を終えたら元の場所へ返す。
+// __ここで next を捨てると、QRから来た新入部員が変更後にトップへ出て、__
+// __もう一度QRを読み直すことになる。__ この一手間が記録漏れの直接原因になる
+// （CLAUDE.md「認証後のリダイレクト（最重要）」）。
+//
+// 引数は SafeRedirectPath を通した後の値を渡すこと。ここでは検証しない。
+// 検証する場所を増やすと、片方だけ直した時にオープンリダイレクトが開く。
+func passwordChangePathWith(next string) string {
+	// 行き先がトップなら付けない。/password?next=/ は情報を増やさないのに、
+	// 画面の URL を読みにくくする。
+	if next == "" || next == httpx.DefaultRedirect {
+		return passwordChangePath
+	}
+
+	return passwordChangePath + "?next=" + url.QueryEscape(next)
+}
 
 // handleLogout はセッションを消す。
 //

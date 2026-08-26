@@ -57,6 +57,13 @@ func loginAndGetCookie(t *testing.T, h *Handler) *http.Cookie {
 		t.Fatalf("ログインに失敗: %d %s", w.Code, w.Body.String())
 	}
 
+	return sessionCookie(t, w)
+}
+
+// sessionCookie は応答からセッションCookieを取り出す。
+func sessionCookie(t *testing.T, w *httptest.ResponseRecorder) *http.Cookie {
+	t.Helper()
+
 	for _, c := range w.Result().Cookies() {
 		if c.Name == SessionCookieName {
 			return c
@@ -453,13 +460,50 @@ func TestHandleLogin_外部へのnextを弾く(t *testing.T) {
 
 // 初期パスワードのままなら、next より変更画面を優先すること。
 // ここで通すと、変更しないまま使い続けられる。
-func TestHandleLogin_初期パスワードならnextより変更画面を優先する(t *testing.T) {
+//
+// ただし __行き先は捨てずに持ち回す。__ 捨てると、QRから来た新入部員が
+// 変更を終えた瞬間にトップへ出て、もう一度QRを読み直すことになる。
+func TestHandleLogin_初期パスワードなら変更画面へ送るがnextは残す(t *testing.T) {
 	h, _ := newTestHandler(t)
 
 	w := postLogin(t, h, `{"login_id":"yamada","password":"password123","next":"/i/0042"}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
 	}
+
+	var got loginResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答が JSON でない: %v", err)
+	}
+	if want := "/password?next=%2Fi%2F0042"; got.RedirectTo != want {
+		t.Errorf("redirect_to = %q。%q を期待", got.RedirectTo, want)
+	}
+}
+
+// 危険な next は変更画面にも持ち込ませないこと。
+// ログインで弾いた値が、変更後の行き先として蘇ってはならない。
+func TestHandleLogin_初期パスワードでも外部へのnextは持ち込まない(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	w := postLogin(t, h,
+		`{"login_id":"yamada","password":"password123","next":"//evil.example.com"}`)
+
+	var got loginResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答が JSON でない: %v", err)
+	}
+	// SafeRedirectPath が / に落とし、/password?next=/ は付けない。
+	if got.RedirectTo != "/password" {
+		t.Errorf("redirect_to = %q。/password を期待", got.RedirectTo)
+	}
+}
+
+// next が無い時に ?next=/ を付けないこと。画面のURLを読みにくくするだけで
+// 何も増えない。
+func TestHandleLogin_初期パスワードでnextが無ければクエリを付けない(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	w := postLogin(t, h, `{"login_id":"yamada","password":"password123"}`)
 
 	var got loginResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {

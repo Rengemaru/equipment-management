@@ -68,8 +68,23 @@
 2. 発行された初期パスワードは**作成直後の画面に一度だけ表示**する（DBには平文を残さない）
 3. ユーザーは `/login` で ID + パスワードを入力
 4. 検証成功 → `sessions` にセッション作成、Cookie 発行
-5. `must_change_password = 1` なら**パスワード変更画面へ強制遷移**
-6. `next` パラメータがあればそのURLへリダイレクト
+5. `must_change_password = 1` なら**パスワード変更画面へ強制遷移**。このとき `next` は捨てず、`/password?next=...` の形で持ち回す
+6. `next` パラメータがあればそのURLへリダイレクト（5 を通った場合は**変更完了後**に戻す）
+
+`next` の検証は `/api/login` と `/api/password` の**両方**で行い、安全な値だけを `redirect_to` として返す。
+フロントは `?next=` を読んで送り返すだけで、**解釈しない。**
+
+```
+/i/0042（未ログイン）
+  → /login?next=%2Fi%2F0042
+  → POST /api/login          redirect_to: /password?next=%2Fi%2F0042
+  → /password?next=%2Fi%2F0042
+  → POST /api/password       redirect_to: /i/0042
+  → /i/0042
+```
+
+**5 で `next` を捨ててはならない。** 捨てると、QRから来た新入部員が初回ログインを終えた瞬間にトップへ出て、
+もう一度QRを読み直すことになる。この一手間が記録漏れの直接原因になる。
 
 ### 要件
 - パスワードは **bcrypt** でハッシュ化（`golang.org/x/crypto/bcrypt`）。平文保存しない

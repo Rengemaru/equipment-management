@@ -259,3 +259,107 @@ func TestSetPassword_居ない利用者はErrNotFound(t *testing.T) {
 		t.Fatal("エラーを期待したが nil")
 	}
 }
+
+// ---- 変更後の復帰（m1-spec §フロー 5→6） ----
+
+// QRから来た新入部員が、初回ログインとパスワード変更を終えた後に
+// 元の備品ページへ戻ること。
+//
+// __M1で最も重い経路。__ ここで戻せないとQRを読み直させることになり、
+// その一手間が記録漏れの直接原因になる（CLAUDE.md）。
+func TestHandlePasswordChange_変更後にnextへ戻す(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	// 1. QRから来て初回ログイン。行き先を持ったまま変更画面へ送られる。
+	w := postLogin(t, h, `{"login_id":"yamada","password":"password123","next":"/i/0042"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("login: status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	var afterLogin loginResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &afterLogin); err != nil {
+		t.Fatalf("応答が JSON でない: %v", err)
+	}
+	if want := "/password?next=%2Fi%2F0042"; afterLogin.RedirectTo != want {
+		t.Fatalf("login redirect_to = %q。%q を期待", afterLogin.RedirectTo, want)
+	}
+
+	c := sessionCookie(t, w)
+
+	// 2. 画面がクエリの next をそのまま送り返す。
+	got := postPasswordChange(t, h, c,
+		`{"current_password":"password123","new_password":"newpassword456","next":"/i/0042"}`)
+	if got.Code != http.StatusOK {
+		t.Fatalf("password: status = %d, body = %s", got.Code, got.Body.String())
+	}
+
+	var afterChange loginResponse
+	if err := json.Unmarshal(got.Body.Bytes(), &afterChange); err != nil {
+		t.Fatalf("応答が JSON でない: %v", err)
+	}
+	if afterChange.RedirectTo != "/i/0042" {
+		t.Errorf("redirect_to = %q。/i/0042 を期待（QRを読み直させない）", afterChange.RedirectTo)
+	}
+}
+
+// 検証は変更側でも行うこと。ログインを通さずに直接叩かれても、
+// 外部サイトへ飛ばせてはならない。
+func TestHandlePasswordChange_外部へのnextを弾く(t *testing.T) {
+	dangerous := []string{
+		"//evil.example.com",
+		"https://evil.example.com/x",
+		"http://evil.example.com",
+		`/\evil.example.com`,
+		"javascript:alert(1)",
+	}
+
+	for _, next := range dangerous {
+		t.Run(next, func(t *testing.T) {
+			h, _ := newTestHandler(t)
+			c := loginAndGetCookie(t, h)
+
+			body, err := json.Marshal(passwordChangeRequest{
+				CurrentPassword: "password123",
+				NewPassword:     "newpassword456",
+				Next:            next,
+			})
+			if err != nil {
+				t.Fatalf("Marshal: %v", err)
+			}
+
+			w := postPasswordChange(t, h, c, string(body))
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+			}
+
+			var got loginResponse
+			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+				t.Fatalf("応答が JSON でない: %v", err)
+			}
+			if got.RedirectTo != "/" {
+				t.Errorf("redirect_to = %q。/ に落とすこと", got.RedirectTo)
+			}
+		})
+	}
+}
+
+// 自分でパスワードを変えに来ただけの人は next を持たない。
+// 行き先が無い時は必ずトップを返す（omitempty にしない理由と同じ）。
+func TestHandlePasswordChange_nextが無ければトップへ戻す(t *testing.T) {
+	h, _ := newTestHandler(t)
+	c := loginAndGetCookie(t, h)
+
+	w := postPasswordChange(t, h, c,
+		`{"current_password":"password123","new_password":"newpassword456"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	var got loginResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答が JSON でない: %v", err)
+	}
+	if got.RedirectTo != "/" {
+		t.Errorf("redirect_to = %q。/ を期待", got.RedirectTo)
+	}
+}

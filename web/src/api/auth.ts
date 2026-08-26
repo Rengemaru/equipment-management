@@ -50,15 +50,20 @@ export function me(): Promise<AuthResponse> {
  *
  * 変更すると他の端末のセッションは全て切れる。今の端末だけは
  * サーバが繋ぎ直すため、ログインし直す必要はない。
+ *
+ * next は `/password?next=/i/0042` の値をそのまま渡す。login と同じく
+ * __フロントで解釈しない。__ 初期パスワードのままQRから来た人を、
+ * 変更を終えた瞬間にトップへ放り出さないための経路。
  */
 export function changePassword(
   currentPassword: string,
   newPassword: string,
+  next: string,
 ): Promise<AuthResponse> {
   return requestJSON<AuthResponse>(
     '/api/password',
     'POST',
-    { current_password: currentPassword, new_password: newPassword },
+    { current_password: currentPassword, new_password: newPassword, next },
     // ここの 401 は「現在のパスワードが違う」。セッションは生きている。
     // 区別しないと、打ち間違えた人がその場でログアウトさせられる。
     { verifiesCredentials: true },

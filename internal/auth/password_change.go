@@ -51,6 +51,11 @@ WHERE id = ?`
 type passwordChangeRequest struct {
 	CurrentPassword string `json:"current_password"`
 	NewPassword     string `json:"new_password"`
+
+	// Next は変更を終えた後に戻る先。ログインが `/password?next=/i/0042` へ
+	// 送った時の値をそのまま渡す。検証はここで行い、安全な値だけを
+	// redirect_to として返す。__フロントに解釈させない。__
+	Next string `json:"next"`
 }
 
 // handlePasswordChange はパスワードを変更する。RequireLogin を通っている前提。
@@ -113,8 +118,13 @@ func (h *Handler) handlePasswordChange(w http.ResponseWriter, r *http.Request) {
 	updated := *user
 	updated.MustChangePassword = false
 
+	// 初期パスワードのままログインした人は、ここへ来る前に行き先を
+	// 持たされている（`/password?next=/i/0042`）。それを返す。
+	// QRから来た新入部員を、変更を終えた瞬間にトップへ放り出さない。
+	//
+	// 自分でパスワードを変えに来ただけの人は next が空で、トップに戻る。
 	httpx.JSON(w, http.StatusOK, loginResponse{
 		User:       newUserResponse(&updated),
-		RedirectTo: httpx.DefaultRedirect,
+		RedirectTo: httpx.SafeRedirectPath(req.Next),
 	})
 }

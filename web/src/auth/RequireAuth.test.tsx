@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { fireEvent, screen } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 
 import { errorResponse, jsonResponse, stubFetch } from '../testing/fetchStub'
@@ -63,4 +63,37 @@ test('変更済みならそのまま画面を出す', async () => {
   renderApp('/')
 
   expect(await screen.findByRole('heading', { name: '備品管理' })).toBeDefined()
+})
+
+// 初期パスワードのままの人がQRを読んだ場合。変更画面へ送るのは同じだが、
+// __元いた場所を落とさない。__ 落とすと、変更を終えた瞬間にトップへ出て、
+// もう一度QRを読み直すことになる（CLAUDE.md「認証後のリダイレクト」）。
+test('初期パスワードのままQRから来たら next を持たせて変更画面へ送る', async () => {
+  const fetchMock = stubFetch({
+    '/api/me': () => jsonResponse({ user: initial, redirect_to: '/' }),
+    '/api/password': () => jsonResponse({ user: taro, redirect_to: '/i/0042' }),
+  })
+
+  renderApp('/i/0042')
+
+  await screen.findByRole('heading', { name: 'パスワードの変更' })
+
+  // 変更画面が next を拾えていること。フォームを送ると本文に入る。
+  fireEvent.change(screen.getByLabelText('現在のパスワード'), {
+    target: { value: 'initial-pw' },
+  })
+  fireEvent.change(screen.getByLabelText('新しいパスワード'), {
+    target: { value: 'new-password' },
+  })
+  fireEvent.change(screen.getByLabelText('新しいパスワード（確認）'), {
+    target: { value: 'new-password' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: '変更する' }))
+
+  const call = await vi.waitFor(() => {
+    const found = fetchMock.mock.calls.find(([path]) => path === '/api/password')
+    if (!found) throw new Error('/api/password が呼ばれていない')
+    return found
+  })
+  expect(JSON.parse(String(call[1]?.body))).toHaveProperty('next', '/i/0042')
 })

@@ -116,3 +116,67 @@ test('変更済みなら理由を出さない', async () => {
     screen.queryByText('初期パスワードのままです。変更するまで他の画面は使えません。'),
   ).toBeNull()
 })
+
+// ---- 変更後の復帰（m1-spec §フロー 5→6） ----
+
+// QRから来た新入部員は「/i/0042 -> /login -> /password」と送られる。
+// __ここで next を落とすと、変更を終えた瞬間にトップへ出て、__
+// __もう一度QRを読み直すことになる。__ その一手間が記録漏れに直結する。
+test('?next= をそのままサーバへ渡す', async () => {
+  const fetchMock = stubFetch({
+    '/api/me': () => jsonResponse({ user: initial, redirect_to: '/' }),
+    '/api/password': () => jsonResponse({ user: taro, redirect_to: '/i/0042' }),
+    '/api/items/0042': () =>
+      jsonResponse({
+        item: {
+          code: '0042',
+          name: '三脚',
+          category: '撮影機材',
+          model: '',
+          owner: 'サークル',
+          is_free_use: false,
+          location: '部室',
+          condition: '良好',
+          location_status: '在庫',
+          note: '',
+          photo_url: null,
+        },
+      }),
+  })
+
+  renderApp('/password?next=%2Fi%2F0042')
+  await screen.findByRole('heading', { name: 'パスワードの変更' })
+
+  submit('initial-pw', 'new-password', 'new-password')
+
+  // 送った本文に next が入っていること。値の解釈はサーバに任せる。
+  const call = await vi.waitFor(() => {
+    const found = fetchMock.mock.calls.find(([path]) => path === '/api/password')
+    if (!found) throw new Error('/api/password が呼ばれていない')
+    return found
+  })
+  expect(JSON.parse(String(call[1]?.body))).toHaveProperty('next', '/i/0042')
+
+  // サーバが示した行き先へ進んでいること。
+  expect(await screen.findByText('三脚')).toBeDefined()
+})
+
+// 自分でパスワードを変えに来ただけの人は next を持たない。
+test('?next= が無ければ空文字を渡す', async () => {
+  const fetchMock = stubFetch({
+    '/api/me': () => jsonResponse({ user: taro, redirect_to: '/' }),
+    '/api/password': () => jsonResponse({ user: taro, redirect_to: '/' }),
+  })
+
+  renderApp('/password')
+  await screen.findByRole('heading', { name: 'パスワードの変更' })
+
+  submit('current-pw', 'new-password', 'new-password')
+
+  const call = await vi.waitFor(() => {
+    const found = fetchMock.mock.calls.find(([path]) => path === '/api/password')
+    if (!found) throw new Error('/api/password が呼ばれていない')
+    return found
+  })
+  expect(JSON.parse(String(call[1]?.body))).toHaveProperty('next', '')
+})

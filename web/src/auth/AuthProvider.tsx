@@ -43,8 +43,13 @@ export type AuthContextValue = AuthState & {
    */
   logout(): Promise<void>
 
-  /** changePassword はパスワードを変更し、進むべきパスを返す。 */
-  changePassword(currentPassword: string, newPassword: string): Promise<string>
+  /**
+   * changePassword はパスワードを変更し、進むべきパスを返す。
+   *
+   * next は `/password?next=` の値をそのまま渡す。login と同じく、
+   * 安全かどうかはサーバが判断する。
+   */
+  changePassword(currentPassword: string, newPassword: string, next: string): Promise<string>
 
   /** reload はサーバに現在のログイン状態を聞き直す。 */
   reload(): Promise<void>
@@ -125,11 +130,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
-    const res = await api.changePassword(currentPassword, newPassword)
-    setState({ status: 'authenticated', user: res.user })
-    return res.redirect_to
-  }, [])
+  const changePassword = useCallback(
+    async (currentPassword: string, newPassword: string, next: string) => {
+      const res = await api.changePassword(currentPassword, newPassword, next)
+      setState({ status: 'authenticated', user: res.user })
+      return res.redirect_to
+    },
+    [],
+  )
 
   return (
     <AuthContext.Provider value={{ ...state, login, logout, changePassword, reload }}>
