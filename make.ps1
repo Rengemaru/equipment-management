@@ -104,9 +104,12 @@ switch ($Task) {
     'backup' {
         $stamp = Get-Date -Format 'yyyy-MM-dd'
         docker @ProdArgs exec app /server -backup "/data/backup-$stamp.db"
-        if ($?) {
+        # __$? では判定しない。__ docker は進捗も警告も stderr に書くため、
+        # 呼び出し側が 2>&1 で受けると終了コード0でも $? が false になる。
+        # 実際にこれで cp が飛ばされ、取り出せていないのに成功に見えた。
+        if ($LASTEXITCODE -eq 0) {
             docker @ProdArgs cp "app:/data/backup-$stamp.db" "./backup-$stamp.db"
-            if ($?) { Write-Host "取り出しました: .\backup-$stamp.db" }
+            if ($LASTEXITCODE -eq 0) { Write-Host "取り出しました: .\backup-$stamp.db" }
         }
     }
 
@@ -121,12 +124,17 @@ switch ($Task) {
             Write-Host "$File が無い"
             exit 1
         }
+        # backup と同じ理由で $LASTEXITCODE を見る（$? は stderr で崩れる）。
+        # __途中で失敗したまま start しない。__ 中途半端に戻したDBで
+        # サーバを上げると、何が入っているか分からない状態で運用が始まる。
         docker @ProdArgs stop
-        if ($?) { docker @ProdArgs cp $File 'app:/data/restore-src.db' }
-        if ($?) { docker @ProdArgs run --rm app -restore /data/restore-src.db }
-        if ($?) {
+        if ($LASTEXITCODE -eq 0) { docker @ProdArgs cp $File 'app:/data/restore-src.db' }
+        if ($LASTEXITCODE -eq 0) { docker @ProdArgs run --rm app -restore /data/restore-src.db }
+        if ($LASTEXITCODE -eq 0) {
             docker @ProdArgs start
             Write-Host '起動しました。ログインできることを確かめること。'
+        } else {
+            Write-Host '復元に失敗した。サーバは止めたままにしてある。'
         }
     }
 }
