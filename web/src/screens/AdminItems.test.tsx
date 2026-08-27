@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 
 import { errorResponse, jsonResponse, stubFetch } from '../testing/fetchStub'
@@ -218,7 +218,32 @@ test('削除の導線を置かない', async () => {
   stubFetch(routes())
 
   renderApp('/admin/items')
-  const list = within(await screen.findByRole('list'))
+  // 一覧が出てから見る。出る前に見ると、まだ描かれていないだけで通ってしまう。
+  await screen.findByText('三脚')
 
-  expect(list.queryByRole('button', { name: /削除/ })).toBeNull()
+  // 画面のどこにも置かない。廃棄は状態であって削除ではなく、
+  // 行を消すと貸出履歴の参照先が消える（CLAUDE.md）。
+  expect(screen.queryByRole('button', { name: /削除/ })).toBeNull()
+  expect(screen.queryByRole('link', { name: /削除/ })).toBeNull()
+})
+
+// ---- CSVエクスポート ----
+
+// __システムが死んでもデータが残るための保険__（m1-spec §8）。
+// APIだけあって押す場所が無いと、存在を知る手段が無く使われない。
+test('全備品のCSV書き出しへ行ける', async () => {
+  stubFetch(routes())
+
+  renderApp('/admin/items')
+  await screen.findByRole('heading', { name: '備品マスタ管理' })
+
+  const link = screen.getByRole('link', { name: /全備品をCSVで書き出す/ })
+
+  // サーバがそのまま返すものなので、素の <a> で開く。
+  // react-router の Link にすると画面遷移として扱われ、保存されない。
+  expect(link).toHaveProperty('href', expect.stringContaining('/api/items/export.csv'))
+
+  // 廃棄済みも含むこと・復元には使えないことを、押す前に書いておく。
+  expect(screen.getByText(/廃棄済みも含めた全件/)).toBeDefined()
+  expect(screen.getByText(/復元にはバックアップ/)).toBeDefined()
 })

@@ -111,6 +111,38 @@ export function LinkRow({
 }
 
 /**
+ * AnchorRow はアプリの外へ出る行（ファイルの書き出し・PDF）。
+ *
+ * __react-router の Link を使わない。__ Link はアプリ内の経路として扱うため、
+ * サーバがそのまま返すもの（CSV・PDF）を渡すと画面遷移になってしまう。
+ * ブラウザに任せることで、保存も印刷もその端末の普通のやり方で済む。
+ *
+ * 山形ではなく下向きの矢印を出す。__「次の画面へ進む」ではなく__
+ * __「手元に落ちてくる」__ ことを、押す前に見せる。
+ */
+export function AnchorRow({
+  href,
+  children,
+  ...rest
+}: {
+  href: string
+  children: ReactNode
+} & Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, 'href'>) {
+  return (
+    <li className={separator}>
+      <a
+        href={href}
+        className="flex min-h-11 items-center gap-3 px-4 py-2.5 active:bg-fill"
+        {...rest}
+      >
+        <div className="min-w-0 flex-1">{children}</div>
+        <DownloadIcon />
+      </a>
+    </li>
+  )
+}
+
+/**
  * ButtonRow は押すとその場で何かが起きる行（無効化・再発行など）。
  *
  * 行き先が無いので山形は出さない。__出すと「次の画面へ進む」に見え、__
@@ -140,6 +172,25 @@ export function ButtonRow({
         {children}
       </button>
     </li>
+  )
+}
+
+/** DownloadIcon は「手元にファイルが落ちてくる」ことを示す。 */
+function DownloadIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      className="h-4 w-4 shrink-0 text-label-3"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M8 1v9m0 0L4.5 6.5M8 10l3.5-3.5" />
+      <path d="M1.5 12v1.5A1.5 1.5 0 0 0 3 15h10a1.5 1.5 0 0 0 1.5-1.5V12" />
+    </svg>
   )
 }
 

@@ -9,7 +9,7 @@ import { Button } from '../ui/Button'
 import { Alert, Badge, Loading } from '../ui/Feedback'
 import { FieldGroup, SwitchField } from '../ui/Field'
 import { ItemFields } from '../ui/ItemFields'
-import { LinkRow, List } from '../ui/List'
+import { AnchorRow, LinkRow, List } from '../ui/List'
 import { Screen } from '../ui/Screen'
 
 /**
@@ -79,6 +79,19 @@ export default function AdminItems() {
         <LinkRow to="/admin/labels">
           <span className="text-[17px]">QRラベルの印刷</span>
         </LinkRow>
+      </List>
+
+      {/*
+        __システムが死んでもデータが残るための保険__（m1-spec §8）。
+        存在を知らせないと使われないので、押せる場所を必ず置く。
+
+        リンクで開く。サーバが Content-Disposition: attachment を付けて
+        返すため、押すとそのまま保存される。fetch して組み立て直さない。
+      */}
+      <List footer="廃棄済みも含めた全件を書き出します。Excel でそのまま開けます。取り込み直しても備品コードは戻らないため、復元にはバックアップを使ってください。">
+        <AnchorRow href="/api/items/export.csv">
+          <span className="text-[17px]">全備品をCSVで書き出す</span>
+        </AnchorRow>
       </List>
 
       <form
