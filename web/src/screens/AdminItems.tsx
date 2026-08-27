@@ -10,6 +10,7 @@ import { Alert, Badge, Loading } from '../ui/Feedback'
 import { FieldGroup, SwitchField } from '../ui/Field'
 import { ItemFields } from '../ui/ItemFields'
 import { AnchorRow, LinkRow, List } from '../ui/List'
+import { PhotoField } from '../ui/PhotoField'
 import { Screen } from '../ui/Screen'
 
 /**
@@ -60,12 +61,25 @@ export default function AdminItems() {
     setParams(next, { replace: true })
   }
 
-  /** replaceItem は保存した1件だけを差し替える。一覧を取り直さない。 */
-  const replaceItem = useCallback((updated: Item) => {
+  /** patchItem は一覧の1件だけを差し替える。編集は開いたままにする。 */
+  const patchItem = useCallback((updated: Item) => {
     setItems((prev) => prev?.map((it) => (it.code === updated.code ? updated : it)) ?? null)
-    setEditing('')
-    setSaved(updated.code)
   }, [])
+
+  /**
+   * replaceItem は保存した1件を差し替え、編集を閉じる。一覧を取り直さない。
+   *
+   * 写真の差し替えでは閉じない（patchItem を使う）。__写真は選んだ時点で__
+   * __送られるので、ここで閉じると入力中の他の項目が消える。__
+   */
+  const replaceItem = useCallback(
+    (updated: Item) => {
+      patchItem(updated)
+      setEditing('')
+      setSaved(updated.code)
+    },
+    [patchItem],
+  )
 
   return (
     <Screen title="備品マスタ管理" back={{ to: '/', label: 'トップ' }}>
@@ -173,7 +187,12 @@ export default function AdminItems() {
                 </div>
 
                 {editing === it.code ? (
-                  <EditForm item={it} onSaved={replaceItem} onCancel={() => setEditing('')} />
+                  <EditForm
+                    item={it}
+                    onSaved={replaceItem}
+                    onPhotoChanged={patchItem}
+                    onCancel={() => setEditing('')}
+                  />
                 ) : (
                   // __削除の導線は置かない。__ 廃棄は状態で、行を消すと
                   // 貸出履歴の参照先が消える（CLAUDE.md）。
@@ -216,10 +235,13 @@ export default function AdminItems() {
 function EditForm({
   item,
   onSaved,
+  onPhotoChanged,
   onCancel,
 }: {
   item: Item
   onSaved: (updated: Item) => void
+  /** onPhotoChanged は写真だけが変わった時。編集は閉じない。 */
+  onPhotoChanged: (updated: Item) => void
   onCancel: () => void
 }) {
   const [attrs, setAttrs] = useState<ItemAttributes>(toAttributes(item))
@@ -246,6 +268,11 @@ function EditForm({
       {/* 入力欄は登録フォームと同じものを使う。別々に書くと、項目を足した時に
           片方だけ直され、経路によって入る値が変わる。 */}
       <ItemFields attrs={attrs} onChange={setAttrs} idPrefix={item.code} />
+
+      {/* __写真は保存ボタンとは独立して効く。__ 選んだ時点で送られるため、
+          「保存を押さずに閉じたら写真だけ残った」という食い違いが起きない。
+          ここに無いと、CSVで一括登録した備品には一生写真を付けられない。 */}
+      <PhotoField item={item} onChanged={onPhotoChanged} />
 
       {error !== '' && <Alert>{error}</Alert>}
 

@@ -247,3 +247,87 @@ test('全備品のCSV書き出しへ行ける', async () => {
   expect(screen.getByText(/廃棄済みも含めた全件/)).toBeDefined()
   expect(screen.getByText(/復元にはバックアップ/)).toBeDefined()
 })
+
+// ---- 写真の差し替え・削除 ----
+
+// __CSVで一括登録した備品には、登録フォームを通らないので写真が付かない。__
+// M1 の主な入り口は一括登録なので、編集から付けられないと
+// ほとんどの備品が一生写真を持てない。
+test('編集から写真を追加できる', async () => {
+  const withPhoto = { ...item({}), photo_url: '/api/items/0001/photo' }
+  const fetchMock = stubFetch({
+    ...routes(),
+    'POST /api/items/0001/photo': () => jsonResponse({ item: withPhoto }),
+  })
+
+  renderApp('/admin/items')
+  await screen.findByText('三脚')
+  fireEvent.click(screen.getByRole('button', { name: '編集' }))
+
+  const file = new File(['x'], 'tripod.jpg', { type: 'image/jpeg' })
+  fireEvent.change(screen.getByLabelText('写真を追加する'), { target: { files: [file] } })
+
+  await waitFor(() => {
+    const call = fetchMock.mock.calls.find(([path]) => path === '/api/items/0001/photo')
+    expect(call).toBeDefined()
+    // multipart で送る。Content-Type は指定しない（境界文字列がずれる）。
+    expect(call?.[1]?.body).toBeInstanceOf(FormData)
+  })
+})
+
+// 写真は選んだ時点で送られる。__ここで編集を閉じると、入力中の他の項目が消える。__
+test('写真を差し替えても編集は閉じない', async () => {
+  const withPhoto = { ...item({}), photo_url: '/api/items/0001/photo' }
+  stubFetch({
+    ...routes(),
+    'POST /api/items/0001/photo': () => jsonResponse({ item: withPhoto }),
+  })
+
+  renderApp('/admin/items')
+  await screen.findByText('三脚')
+  fireEvent.click(screen.getByRole('button', { name: '編集' }))
+
+  fireEvent.change(screen.getByLabelText('保管場所'), { target: { value: '倉庫' } })
+
+  const file = new File(['x'], 'tripod.jpg', { type: 'image/jpeg' })
+  fireEvent.change(screen.getByLabelText('写真を追加する'), { target: { files: [file] } })
+
+  // 差し替えの後も編集は開いたままで、打ちかけの値も残っていること。
+  expect(await screen.findByRole('button', { name: '保存' })).toBeDefined()
+  expect(screen.getByLabelText('保管場所')).toHaveProperty('value', '倉庫')
+})
+
+// 消したファイルは戻らない。1タップの確認を挟む。
+test('写真を外すのは確認を挟む', async () => {
+  const withPhoto = { ...item({}), photo_url: '/api/items/0001/photo' }
+  const fetchMock = stubFetch({
+    ...routes(),
+    '/api/items': () => jsonResponse({ items: [withPhoto] }),
+    'DELETE /api/items/0001/photo': () => jsonResponse({ item: item({}) }),
+  })
+
+  renderApp('/admin/items')
+  await screen.findByText('三脚')
+  fireEvent.click(screen.getByRole('button', { name: '編集' }))
+
+  fireEvent.click(screen.getByRole('button', { name: '写真を外す' }))
+  expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(false)
+
+  fireEvent.click(screen.getByRole('button', { name: '本当に外す' }))
+
+  await waitFor(() => {
+    const call = fetchMock.mock.calls.find(([path]) => path === '/api/items/0001/photo')
+    expect(call?.[1]?.method).toBe('DELETE')
+  })
+})
+
+// 写真が無い備品に「外す」を出さない。押せない操作を置かない。
+test('写真が無ければ外す導線を出さない', async () => {
+  stubFetch(routes())
+
+  renderApp('/admin/items')
+  await screen.findByText('三脚')
+  fireEvent.click(screen.getByRole('button', { name: '編集' }))
+
+  expect(screen.queryByRole('button', { name: '写真を外す' })).toBeNull()
+})

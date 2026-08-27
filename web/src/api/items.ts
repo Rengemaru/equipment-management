@@ -103,6 +103,20 @@ export async function uploadPhoto(code: string, file: File): Promise<Item> {
 }
 
 /**
+ * deletePhoto は写真を外す。admin のみ。
+ *
+ * 備品そのものは消えない。__写真だけを消す経路が無いと、誤って添付した__
+ * __ものを差し替えでしか隠せなくなる__（別の写真を撮って上書きする、という
+ * 本来要らない作業になる）。
+ */
+export async function deletePhoto(code: string): Promise<Item> {
+  const res = await request<{ item: Item }>(`/api/items/${encodeURIComponent(code)}/photo`, {
+    method: 'DELETE',
+  })
+  return res.item
+}
+
+/**
  * updateItem は備品の内容を差し替える。admin のみ。
  *
  * 全項目を送る。備品コードは送らない（変更できない）。
