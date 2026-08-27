@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { Link, NavLink } from 'react-router'
 
 import { useAuth } from '../auth/AuthProvider'
+import { useLogout } from '../auth/useLogout'
 
 /**
  * Screen は全画面に共通の枠。
@@ -132,10 +133,53 @@ function Sidebar({ isAdmin, name }: { isAdmin: boolean; name: string }) {
         <SidebarLink to="/password">パスワードの変更</SidebarLink>
       </nav>
 
-      <div className="border-t border-separator px-4 py-3 text-[13px] text-label-2">
-        {name} さん
-      </div>
+      <SidebarFooter name={name} />
     </aside>
+  )
+}
+
+/**
+ * SidebarFooter は誰として使っているかと、ログアウト。
+ *
+ * 名前を出すのは、部室の共用PCで前の人のまま操作しないため。
+ * __誰の記録として残るかが分からない状態で借用を記録させない。__
+ */
+function SidebarFooter({ name }: { name: string }) {
+  const logout = useLogout()
+
+  return (
+    <div className="border-t border-separator px-3 py-3">
+      <p className="px-1 text-[13px] text-label-2">{name} さん</p>
+
+      {logout.confirming ? (
+        <div className="mt-1.5">
+          <button
+            type="button"
+            disabled={logout.busy}
+            onClick={() => void logout.run()}
+            className="flex min-h-9 w-full items-center rounded-lg px-3 text-[15px] text-danger active:bg-fill disabled:text-label-3"
+          >
+            {logout.busy ? 'ログアウトしています…' : '本当にログアウトする'}
+          </button>
+          <button
+            type="button"
+            disabled={logout.busy}
+            onClick={logout.cancel}
+            className="flex min-h-9 w-full items-center rounded-lg px-3 text-[15px] text-tint active:bg-fill disabled:text-label-3"
+          >
+            やめる
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={logout.ask}
+          className="mt-1.5 flex min-h-9 w-full items-center rounded-lg px-3 text-[15px] text-danger active:bg-fill"
+        >
+          ログアウト
+        </button>
+      )}
+    </div>
   )
 }
 

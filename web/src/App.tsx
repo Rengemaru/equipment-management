@@ -3,6 +3,7 @@ import { Route, Routes } from 'react-router'
 import { useAuth } from './auth/AuthProvider'
 import { RequireAdmin } from './auth/RequireAdmin'
 import { RequireAuth } from './auth/RequireAuth'
+import { useLogout } from './auth/useLogout'
 import AdminItemNew from './screens/AdminItemNew'
 import AdminItems from './screens/AdminItems'
 import AdminItemsImport from './screens/AdminItemsImport'
@@ -13,7 +14,7 @@ import Items from './screens/Items'
 import Login from './screens/Login'
 import PasswordChange from './screens/PasswordChange'
 import { Empty } from './ui/Feedback'
-import { LinkRow, List } from './ui/List'
+import { ButtonRow, LinkRow, List } from './ui/List'
 import { Screen } from './ui/Screen'
 
 /**
@@ -164,6 +165,8 @@ function Home() {
             <span className="text-[17px]">パスワードの変更</span>
           </LinkRow>
         </List>
+
+        <LogoutList />
       </div>
 
       <p className="mt-6 hidden px-4 text-[15px] leading-relaxed text-label-2 lg:block">
@@ -173,6 +176,37 @@ function Home() {
         </span>
       </p>
     </Screen>
+  )
+}
+
+/**
+ * LogoutList はトップの一番下に置くログアウト。
+ *
+ * 一番下に置くのは iOS の設定画面と同じ。__よく押すものの隣に置かない。__
+ * セッションは1年もつので、押し間違えるとその場では戻れない。
+ */
+function LogoutList() {
+  const logout = useLogout()
+
+  if (logout.confirming) {
+    return (
+      <List footer="ログアウトすると、次に使う時にもう一度パスワードが要ります。">
+        <ButtonRow tone="danger" disabled={logout.busy} onClick={() => void logout.run()}>
+          {logout.busy ? 'ログアウトしています…' : '本当にログアウトする'}
+        </ButtonRow>
+        <ButtonRow disabled={logout.busy} onClick={logout.cancel}>
+          やめる
+        </ButtonRow>
+      </List>
+    )
+  }
+
+  return (
+    <List>
+      <ButtonRow tone="danger" onClick={logout.ask}>
+        ログアウト
+      </ButtonRow>
+    </List>
   )
 }
 
