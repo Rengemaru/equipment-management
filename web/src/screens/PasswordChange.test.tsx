@@ -180,3 +180,42 @@ test('?next= が無ければ空文字を渡す', async () => {
   })
   expect(JSON.parse(String(call[1]?.body))).toHaveProperty('next', '')
 })
+
+// ---- 変更せずに離脱する ----
+
+// 強制されて来た人は他の画面へ進めず、サイドバーも出ない。
+// __ここにログアウトが無いと、その端末は誰も抜けられなくなる。__
+// 部室の共用PCで初期パスワードのまま放置されたセッションが残ると、
+// 次の人は現在のパスワードを知らないので変更もできない。
+// サーバも同じ考えで /api/logout だけは通している（passwordChangeExempt）。
+test('初期パスワードのままでもログアウトできる', async () => {
+  const fetchMock = stubFetch({
+    '/api/me': () => jsonResponse({ user: initial, redirect_to: '/' }),
+    'POST /api/logout': () => new Response(null, { status: 204 }),
+  })
+
+  renderApp('/password')
+  await screen.findByRole('heading', { name: 'パスワードの変更' })
+
+  fireEvent.click(screen.getByRole('button', { name: 'ログアウト' }))
+  fireEvent.click(screen.getByRole('button', { name: '本当にログアウトする' }))
+
+  await vi.waitFor(() => {
+    if (!fetchMock.mock.calls.some(([path]) => path === '/api/logout')) {
+      throw new Error('/api/logout が呼ばれていない')
+    }
+  })
+
+  expect(await screen.findByRole('heading', { name: 'ログイン' })).toBeDefined()
+})
+
+// 自分で変えに来ただけの人には出さない。トップに戻れば済むので、
+// ここに置くと取り違えて押す人が出る。
+test('自分で変えに来た人にはログアウトを出さない', async () => {
+  stubFetch({ '/api/me': () => jsonResponse({ user: taro, redirect_to: '/' }) })
+
+  renderApp('/password')
+  await screen.findByRole('heading', { name: 'パスワードの変更' })
+
+  expect(screen.queryByRole('button', { name: 'ログアウト' })).toBeNull()
+})

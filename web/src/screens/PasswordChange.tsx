@@ -4,9 +4,11 @@ import { useNavigate, useSearchParams } from 'react-router'
 
 import { errorMessage } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
+import { useLogout } from '../auth/useLogout'
 import { Button } from '../ui/Button'
 import { Alert, Notice } from '../ui/Feedback'
 import { FieldGroup, StackedField } from '../ui/Field'
+import { ButtonRow, List } from '../ui/List'
 import { Screen } from '../ui/Screen'
 
 /**
@@ -118,6 +120,40 @@ export default function PasswordChange() {
           </Button>
         </div>
       </form>
+
+      {/* 強制されて来た人は他の画面へ進めず、サイドバーも出ない。
+          ここにログアウトが無いと、__その端末は誰も抜けられなくなる。__
+          部室の共用PCで、初期パスワードのまま放置された他人のセッションが
+          残った場合、次の人は現在のパスワードを知らないので変更もできない。
+          サーバも同じ考えで、初期パスワードのままでも /api/logout だけは
+          通している（internal/auth/middleware.go の passwordChangeExempt）。 */}
+      {forced && <LeaveWithoutChanging />}
     </Screen>
+  )
+}
+
+/** LeaveWithoutChanging は変更せずに離脱する手段。 */
+function LeaveWithoutChanging() {
+  const logout = useLogout()
+
+  if (logout.confirming) {
+    return (
+      <List footer="ログアウトすると、次に使う時にもう一度パスワードが要ります。">
+        <ButtonRow tone="danger" disabled={logout.busy} onClick={() => void logout.run()}>
+          {logout.busy ? 'ログアウトしています…' : '本当にログアウトする'}
+        </ButtonRow>
+        <ButtonRow disabled={logout.busy} onClick={logout.cancel}>
+          やめる
+        </ButtonRow>
+      </List>
+    )
+  }
+
+  return (
+    <List footer="自分のアカウントでない場合は、ログアウトしてから使ってください。">
+      <ButtonRow tone="danger" onClick={logout.ask}>
+        ログアウト
+      </ButtonRow>
+    </List>
   )
 }
