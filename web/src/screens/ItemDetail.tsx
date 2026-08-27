@@ -101,7 +101,9 @@ export default function ItemDetail() {
 
       {item.photo_url !== '' && (
         <img
-          className="mt-6 w-full rounded-group"
+          // 広い画面で高さを抑える。__備品を見分けるための写真であって、__
+          // __主役ではない。__ 抑えないと、下の項目が画面外へ押し出される。
+          className="mt-6 max-h-[70vh] w-full rounded-group object-contain md:max-h-96"
           src={item.photo_url}
           alt={`${item.name}の写真`}
           // 写真は備品を見分けるためのもの。読み込めなくても他の情報は要る。

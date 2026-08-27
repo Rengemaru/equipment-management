@@ -54,7 +54,7 @@ export function Field({
   return (
     <div className={separator}>
       <div className="flex min-h-11 items-center gap-3 px-4 py-1.5">
-        <label className="w-24 shrink-0 text-[17px]" htmlFor={id}>
+        <label className="w-24 shrink-0 text-[17px] md:w-32" htmlFor={id}>
           {label}
         </label>
         <input
@@ -126,7 +126,7 @@ export function SelectField({
 } & SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <div className={`flex min-h-11 items-center gap-3 px-4 py-1.5 ${separator}`}>
-      <label className="w-24 shrink-0 text-[17px]" htmlFor={id}>
+      <label className="w-24 shrink-0 text-[17px] md:w-32" htmlFor={id}>
         {label}
       </label>
 

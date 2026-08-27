@@ -64,6 +64,7 @@ export default function PasswordChange() {
   return (
     <Screen
       title="パスワードの変更"
+      narrow
       // 強制されて来た人には戻る先が無い。ここを出ることは許されていない。
       back={forced ? undefined : { to: '/', label: 'トップ' }}
     >

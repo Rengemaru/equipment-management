@@ -134,30 +134,44 @@ function Home() {
 
   return (
     <Screen title="備品管理" subtitle={name === '' ? undefined : `${name} さん`}>
-      <List>
-        <LinkRow to="/items">
-          <span className="text-[17px]">備品一覧</span>
-        </LinkRow>
-      </List>
-
-      {/* 運営の画面は運営にだけ出す。member に出すと、押した先で
-          「権限がありません」に当たるだけになる。 */}
-      {isAdmin && (
-        <List header="運営">
-          <LinkRow to="/admin/items">
-            <span className="text-[17px]">備品マスタ管理</span>
-          </LinkRow>
-          <LinkRow to="/admin/users">
-            <span className="text-[17px]">ユーザー管理</span>
+      {/*
+        広い画面では同じ行き先がサイドバーに出ている。__ここにも並べると、__
+        __同じリンクが2箇所に出て、どちらを押せばよいのか分からなくなる。__
+        狭い画面ではサイドバーが無いので、こちらが唯一の入口になる。
+      */}
+      <div className="lg:hidden">
+        <List>
+          <LinkRow to="/items">
+            <span className="text-[17px]">備品一覧</span>
           </LinkRow>
         </List>
-      )}
 
-      <List>
-        <LinkRow to="/password">
-          <span className="text-[17px]">パスワードの変更</span>
-        </LinkRow>
-      </List>
+        {/* 運営の画面は運営にだけ出す。member に出すと、押した先で
+            「権限がありません」に当たるだけになる。 */}
+        {isAdmin && (
+          <List header="運営">
+            <LinkRow to="/admin/items">
+              <span className="text-[17px]">備品マスタ管理</span>
+            </LinkRow>
+            <LinkRow to="/admin/users">
+              <span className="text-[17px]">ユーザー管理</span>
+            </LinkRow>
+          </List>
+        )}
+
+        <List>
+          <LinkRow to="/password">
+            <span className="text-[17px]">パスワードの変更</span>
+          </LinkRow>
+        </List>
+      </div>
+
+      <p className="mt-6 hidden px-4 text-[15px] leading-relaxed text-label-2 lg:block">
+        左の一覧から選んでください。
+        <span className="mt-1 block text-[13px]">
+          棚に貼ったQRを読むと、その備品の画面が直接開きます。
+        </span>
+      </p>
     </Screen>
   )
 }

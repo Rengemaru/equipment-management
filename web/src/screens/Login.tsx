@@ -44,7 +44,7 @@ export default function Login() {
   // 一瞬フォームが見えてから消えることになる。
   if (auth.status === 'loading') {
     return (
-      <Screen title="ログイン">
+      <Screen title="ログイン" narrow>
         <Loading>確認しています…</Loading>
       </Screen>
     )
@@ -71,7 +71,7 @@ export default function Login() {
   }
 
   return (
-    <Screen title="ログイン">
+    <Screen title="ログイン" narrow>
       <form onSubmit={(e) => void handleSubmit(e)}>
         <FieldGroup>
           <StackedField
