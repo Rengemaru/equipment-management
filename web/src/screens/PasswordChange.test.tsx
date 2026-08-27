@@ -1,0 +1,221 @@
+import { fireEvent, screen } from '@testing-library/react'
+import { afterEach, expect, test, vi } from 'vitest'
+
+import { errorResponse, jsonResponse, stubFetch } from '../testing/fetchStub'
+import { renderApp } from '../testing/renderApp'
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+const taro = { id: 1, name: '田中', login_id: 'taro', role: 'member', must_change_password: false }
+const initial = { ...taro, must_change_password: true }
+
+/** submit はフォームに入力して送信する。 */
+function submit(current: string, next: string, confirm: string) {
+  fireEvent.change(screen.getByLabelText('現在のパスワード'), { target: { value: current } })
+  fireEvent.change(screen.getByLabelText('新しいパスワード'), { target: { value: next } })
+  fireEvent.change(screen.getByLabelText('新しいパスワード（確認）'), {
+    target: { value: confirm },
+  })
+  fireEvent.click(screen.getByRole('button', { name: '変更する' }))
+}
+
+test('成功するとサーバが示した行き先へ進む', async () => {
+  stubFetch({
+    '/api/me': () => jsonResponse({ user: initial, redirect_to: '/' }),
+    '/api/password': () => jsonResponse({ user: taro, redirect_to: '/' }),
+  })
+
+  renderApp('/password')
+  await screen.findByRole('heading', { name: 'パスワードの変更' })
+
+  submit('initial-pw', 'new-password', 'new-password')
+
+  expect(await screen.findByRole('heading', { name: '備品管理' })).toBeDefined()
+})
+
+// 入力の取り違えはサーバには分からない。ここでしか確認できない。
+test('確認が一致しなければサーバへ送らない', async () => {
+  const fetchMock = stubFetch({
+    '/api/me': () => jsonResponse({ user: taro, redirect_to: '/' }),
+  })
+
+  renderApp('/password')
+  await screen.findByRole('heading', { name: 'パスワードの変更' })
+
+  submit('current-pw', 'new-password', 'new-passward')
+
+  expect(await screen.findByRole('alert')).toHaveProperty(
+    'textContent',
+    '新しいパスワードが一致しません',
+  )
+  expect(fetchMock.mock.calls.some(([path]) => path === '/api/password')).toBe(false)
+})
+
+// 長さなどの規則はサーバが持つ。画面に書き写すと、片方だけ直した時に
+// 「画面は通すのに登録できない」状態になる。
+test('サーバが弾いた理由をそのまま出す', async () => {
+  stubFetch({
+    '/api/me': () => jsonResponse({ user: taro, redirect_to: '/' }),
+    '/api/password': () => errorResponse('パスワードは8文字以上にする', 400),
+  })
+
+  renderApp('/password')
+  await screen.findByRole('heading', { name: 'パスワードの変更' })
+
+  submit('current-pw', 'short', 'short')
+
+  expect(await screen.findByRole('alert')).toHaveProperty(
+    'textContent',
+    'パスワードは8文字以上にする',
+  )
+})
+
+// __ここが 401 でログアウト扱いになると、打ち間違えただけの人が__
+// __その場で締め出される。__ セッションは生きている。
+test('現在のパスワードを間違えてもログアウトさせない', async () => {
+  stubFetch({
+    '/api/me': () => jsonResponse({ user: taro, redirect_to: '/' }),
+    '/api/password': () => errorResponse('現在のパスワードが違います', 401),
+  })
+
+  renderApp('/password')
+  await screen.findByRole('heading', { name: 'パスワードの変更' })
+
+  submit('wrong-pw', 'new-password', 'new-password')
+
+  expect(await screen.findByRole('alert')).toHaveProperty(
+    'textContent',
+    '現在のパスワードが違います',
+  )
+  // ログイン画面へ飛ばされていない = セッションは保たれている。
+  expect(screen.getByRole('heading', { name: 'パスワードの変更' })).toBeDefined()
+  expect(screen.queryByRole('heading', { name: 'ログイン' })).toBeNull()
+})
+
+// 強制されて来た人に「なぜこの画面なのか」を出さないと、
+// 操作を誤ったように見える。
+test('初期パスワードのままなら理由を出す', async () => {
+  stubFetch({ '/api/me': () => jsonResponse({ user: initial, redirect_to: '/' }) })
+
+  renderApp('/password')
+
+  expect(
+    await screen.findByText('初期パスワードのままです。変更するまで他の画面は使えません。'),
+  ).toBeDefined()
+})
+
+test('変更済みなら理由を出さない', async () => {
+  stubFetch({ '/api/me': () => jsonResponse({ user: taro, redirect_to: '/' }) })
+
+  renderApp('/password')
+  await screen.findByRole('heading', { name: 'パスワードの変更' })
+
+  expect(
+    screen.queryByText('初期パスワードのままです。変更するまで他の画面は使えません。'),
+  ).toBeNull()
+})
+
+// ---- 変更後の復帰（m1-spec §フロー 5→6） ----
+
+// QRから来た新入部員は「/i/0042 -> /login -> /password」と送られる。
+// __ここで next を落とすと、変更を終えた瞬間にトップへ出て、__
+// __もう一度QRを読み直すことになる。__ その一手間が記録漏れに直結する。
+test('?next= をそのままサーバへ渡す', async () => {
+  const fetchMock = stubFetch({
+    '/api/me': () => jsonResponse({ user: initial, redirect_to: '/' }),
+    '/api/password': () => jsonResponse({ user: taro, redirect_to: '/i/0042' }),
+    '/api/items/0042': () =>
+      jsonResponse({
+        item: {
+          code: '0042',
+          name: '三脚',
+          category: '撮影機材',
+          model: '',
+          owner: 'サークル',
+          is_free_use: false,
+          location: '部室',
+          condition: '良好',
+          location_status: '在庫',
+          note: '',
+          photo_url: null,
+        },
+      }),
+  })
+
+  renderApp('/password?next=%2Fi%2F0042')
+  await screen.findByRole('heading', { name: 'パスワードの変更' })
+
+  submit('initial-pw', 'new-password', 'new-password')
+
+  // 送った本文に next が入っていること。値の解釈はサーバに任せる。
+  const call = await vi.waitFor(() => {
+    const found = fetchMock.mock.calls.find(([path]) => path === '/api/password')
+    if (!found) throw new Error('/api/password が呼ばれていない')
+    return found
+  })
+  expect(JSON.parse(String(call[1]?.body))).toHaveProperty('next', '/i/0042')
+
+  // サーバが示した行き先へ進んでいること。
+  expect(await screen.findByText('三脚')).toBeDefined()
+})
+
+// 自分でパスワードを変えに来ただけの人は next を持たない。
+test('?next= が無ければ空文字を渡す', async () => {
+  const fetchMock = stubFetch({
+    '/api/me': () => jsonResponse({ user: taro, redirect_to: '/' }),
+    '/api/password': () => jsonResponse({ user: taro, redirect_to: '/' }),
+  })
+
+  renderApp('/password')
+  await screen.findByRole('heading', { name: 'パスワードの変更' })
+
+  submit('current-pw', 'new-password', 'new-password')
+
+  const call = await vi.waitFor(() => {
+    const found = fetchMock.mock.calls.find(([path]) => path === '/api/password')
+    if (!found) throw new Error('/api/password が呼ばれていない')
+    return found
+  })
+  expect(JSON.parse(String(call[1]?.body))).toHaveProperty('next', '')
+})
+
+// ---- 変更せずに離脱する ----
+
+// 強制されて来た人は他の画面へ進めず、サイドバーも出ない。
+// __ここにログアウトが無いと、その端末は誰も抜けられなくなる。__
+// 部室の共用PCで初期パスワードのまま放置されたセッションが残ると、
+// 次の人は現在のパスワードを知らないので変更もできない。
+// サーバも同じ考えで /api/logout だけは通している（passwordChangeExempt）。
+test('初期パスワードのままでもログアウトできる', async () => {
+  const fetchMock = stubFetch({
+    '/api/me': () => jsonResponse({ user: initial, redirect_to: '/' }),
+    'POST /api/logout': () => new Response(null, { status: 204 }),
+  })
+
+  renderApp('/password')
+  await screen.findByRole('heading', { name: 'パスワードの変更' })
+
+  fireEvent.click(screen.getByRole('button', { name: 'ログアウト' }))
+  fireEvent.click(screen.getByRole('button', { name: '本当にログアウトする' }))
+
+  await vi.waitFor(() => {
+    if (!fetchMock.mock.calls.some(([path]) => path === '/api/logout')) {
+      throw new Error('/api/logout が呼ばれていない')
+    }
+  })
+
+  expect(await screen.findByRole('heading', { name: 'ログイン' })).toBeDefined()
+})
+
+// 自分で変えに来ただけの人には出さない。トップに戻れば済むので、
+// ここに置くと取り違えて押す人が出る。
+test('自分で変えに来た人にはログアウトを出さない', async () => {
+  stubFetch({ '/api/me': () => jsonResponse({ user: taro, redirect_to: '/' }) })
+
+  renderApp('/password')
+  await screen.findByRole('heading', { name: 'パスワードの変更' })
+
+  expect(screen.queryByRole('button', { name: 'ログアウト' })).toBeNull()
+})

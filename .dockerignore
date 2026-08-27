@@ -1,0 +1,33 @@
+# ビルドに要らないものはイメージへ送らない。
+# 送ると転送が遅くなるうえ、意図しないファイルが層に残る。
+
+# 履歴。数百MBになることがある
+.git
+.github
+
+# 依存。コンテナ内で入れ直す。
+# __ホストの node_modules を持ち込まない。__ ホスト(Windows/macOS)と
+# コンテナ(Linux)の差でネイティブモジュールが壊れる。
+node_modules
+web/node_modules
+
+# フロントのビルド成果物。build-web ステージが作り直す。
+# ホストで古いものを持っていても、それがイメージに入らないようにする。
+web/dist
+
+# データ。__絶対にイメージへ入れない。__ 個人情報と貸出履歴が入る
+data
+uploads
+*.db
+*.db-wal
+*.db-shm
+
+# 秘密情報
+.env
+
+# ホスト側の道具。コンテナ内では使わない
+Makefile
+make.ps1
+compose*.yaml
+Dockerfile
+.dockerignore

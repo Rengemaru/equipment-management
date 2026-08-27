@@ -1,0 +1,116 @@
+name: CI
+
+# push だけを見る。このリポジトリは main と m1, m2... のブランチに直接コミットして
+# マージする運用なので、push を見れば全ての変更が通る。
+# pull_request も足すと、同じリポジトリ内のブランチでは同じコミットに対して2回走る。
+# 別リポジトリからのフォークPRを受けるようになったら pull_request を追加すること。
+on: push
+
+# 同じブランチに続けて push した時、古い実行を止める。
+# 結果を待っている間に次を積むと、どれが最新か分からなくなる。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# 読み取りだけで足りる。既定の権限を絞る。
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 開発はコンテナ内で行うが、CI ではイメージを組まずに Go を直接入れる。
+      # コンテナに統一しているのは「macOS と Windows で手順を分けない」ためで、
+      # CI は Linux 1種類しかなく、その理由が当てはまらない。
+      #
+      # バージョンは go.mod から読む。ここに数字を書くと Dockerfile と二重管理になり、
+      # 片方だけ上げた時に「ローカルでは通るが CI で落ちる」が起きる。
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: ビルド
+        run: go build ./...
+
+      # gofmt はここでは書き換えない。CI が直してしまうと、
+      # 整形されていないコードがそのままコミットされ続ける。
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "$unformatted" | while read -r f; do
+              echo "::error file=$f::gofmt がかかっていない。make fmt を実行すること"
+            done
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      # -race を付ける。DB接続はプールされ、複数のリクエストから同時に触られる。
+      # 競合はローカルの手動確認では再現しない。
+      - name: テスト
+        run: go test -race ./...
+
+  web:
+    name: フロント
+    runs-on: ubuntu-latest
+
+    # web/ 以外を触らない変更でも走らせる。パスで絞ると、フロントが依存している
+    # API の変更でフロントのテストが落ちても気付けない。
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Go は go.mod からバージョンを読めるが、Node にはそれに当たるファイルが無い。
+      # ここの数字は Dockerfile の node:22-bookworm と揃っている必要がある。
+      # __上げるときは両方を直す。__
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # npm install ではなく npm ci。lockfile どおりに入れ、依存が勝手に動かないようにする。
+      - name: 依存の取得
+        run: npm ci
+
+      # build に tsc --noEmit が含まれる。型検査はここにしか無い
+      # （vitest は esbuild で型を落として実行するため、テストでは型エラーを見逃す）。
+      - name: 型検査とビルド
+        run: npm run build
+
+      - name: テスト
+        run: npm test
+
+  # PowerShell 5.1 は BOM の無い .ps1 を Shift_JIS として読む。
+  # UTF-8 で保存すると日本語コメントが壊れ、壊れたバイト列が改行を飲み込んで
+  # スクリプト全体がパースエラーになる。実際に make.ps1 がこれで動かなくなった。
+  # Windows でしか踏まないため、macOS で編集すると気付けない。
+  ps1-bom:
+    name: .ps1 の BOM
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: BOM が付いていることを確認する
+        run: |
+          status=0
+          for f in $(git ls-files '*.ps1'); do
+            head=$(head -c 3 "$f" | od -An -tx1 | tr -d ' \n')
+            if [ "$head" != "efbbbf" ]; then
+              echo "::error file=$f::UTF-8 BOM が無い。PowerShell 5.1 が Shift_JIS として読み、日本語が壊れる"
+              status=1
+            fi
+          done
+          exit $status
