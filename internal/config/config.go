@@ -7,6 +7,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/mail"
 	"net/url"
 	"strconv"
 	"strings"
@@ -31,7 +32,35 @@ type Config struct {
 
 	// CookieSecure は Cookie に Secure 属性を付けるか。
 	CookieSecure bool
+
+	// SMTP はメールの送信先。Host が空ならメールを送らない。
+	SMTP SMTPConfig
 }
+
+// SMTPConfig はメールの送信先。
+//
+// __未設定でも起動する。__ 学内SMTPの可否が未確定なため、メールを必須にすると
+// 使えなかった時点でシステム全体が動かせなくなる。認証はメールに依存しない
+// 設計（M1）で、メールは「送れる人にだけ送る」補助手段として扱う。
+type SMTPConfig struct {
+	// Host が空ならメールを送らない。
+	Host string
+
+	// Port は接続先ポート。未設定なら defaultSMTPPort。
+	Port string
+
+	// User が空なら認証しない。学内のリレーは認証不要のことが多い。
+	User string
+
+	// Password は User と対で使う。
+	Password string
+
+	// From は差出人。"名前 <a@example.com>" の形も受け付ける。
+	From string
+}
+
+// Enabled はメールを送る設定になっているか。
+func (c SMTPConfig) Enabled() bool { return c.Host != "" }
 
 // minSecretLen は SESSION_SECRET の最小長。
 // 短い鍵は総当たりで復元でき、セッションを偽造されるとログインを迂回される。
@@ -42,6 +71,10 @@ const devSecret = "change-me-this-is-only-for-local-development"
 
 // defaultPort は PORT が未設定のときに使う値。
 const defaultPort = "8080"
+
+// defaultSMTPPort は SMTP_PORT が未設定のときに使う値。
+// 587 は submission ポート。25 は多くの環境で塞がれている。
+const defaultSMTPPort = "587"
 
 // PortFromEnv は PORT だけを読む。未設定なら既定値を返す。
 //
@@ -131,6 +164,26 @@ func Load(getenv func(string) string) (*Config, []string, error) {
 		cfg.CookieSecure = v
 	}
 
+	// ---- SMTP ----
+	// 未設定なら送信をスキップして動く。メールが使えないだけで
+	// システムが起動できない形にはしない。
+	//
+	// ただし「途中まで設定されている」のは落とす。__送れているつもりで
+	// 送れていない状態が一番気付きにくい。__
+	//
+	// Password だけは前後の空白を削らない。鍵の一部かもしれない。
+	cfg.SMTP = SMTPConfig{
+		Host:     strings.TrimSpace(getenv("SMTP_HOST")),
+		Port:     strings.TrimSpace(getenv("SMTP_PORT")),
+		User:     strings.TrimSpace(getenv("SMTP_USER")),
+		Password: getenv("SMTP_PASSWORD"),
+		From:     strings.TrimSpace(getenv("SMTP_FROM")),
+	}
+	problems = append(problems, validateSMTP(&cfg.SMTP)...)
+	if !cfg.SMTP.Enabled() {
+		warnings = append(warnings, "SMTP_HOST が未設定。メールは送らずに動作する")
+	}
+
 	if len(problems) > 0 {
 		return nil, warnings, &Error{Problems: problems}
 	}
@@ -158,6 +211,44 @@ func validateHostURL(raw string) error {
 	}
 
 	return nil
+}
+
+// validateSMTP は SMTP の設定を検査し、既定値を埋める。
+//
+// Host が空なら何も見ない。メールを使わない運用なので、
+// 他の値が残っていても害はない。
+func validateSMTP(c *SMTPConfig) []string {
+	if c.Host == "" {
+		return nil
+	}
+
+	var problems []string
+
+	if c.Port == "" {
+		c.Port = defaultSMTPPort
+	}
+	if n, err := strconv.Atoi(c.Port); err != nil || n < 1 || n > 65535 {
+		problems = append(problems, fmt.Sprintf("SMTP_PORT が不正: %q", c.Port))
+	}
+
+	// 差出人が無いと多くのサーバは受け取らない。受け取られないことは
+	// 実際に送るまで分からないので、起動時に落とす。
+	switch {
+	case c.From == "":
+		problems = append(problems, "SMTP_HOST があるのに SMTP_FROM が未設定")
+	default:
+		if _, err := mail.ParseAddress(c.From); err != nil {
+			problems = append(problems, fmt.Sprintf("SMTP_FROM が不正: %q", c.From))
+		}
+	}
+
+	// 片方だけの認証情報は、ほぼ確実に書き忘れ。
+	// 認証を要求するサーバに無認証で繋ぎに行き、送信時に初めて失敗する。
+	if (c.User == "") != (c.Password == "") {
+		problems = append(problems, "SMTP_USER と SMTP_PASSWORD は両方設定するか、両方空にする")
+	}
+
+	return problems
 }
 
 // Error は設定の不備をまとめて表す。

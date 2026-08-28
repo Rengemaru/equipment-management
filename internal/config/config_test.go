@@ -25,8 +25,10 @@ func TestLoad_必須値が揃っていれば読める(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(warnings) != 0 {
-		t.Errorf("警告が出ている: %v", warnings)
+	// SMTP は必須ではないので、未設定でも起動できる。
+	// ただし「メールが飛ばない理由」が起動ログから分かるよう警告は出す。
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "SMTP_HOST") {
+		t.Errorf("警告が想定と違う: %v", warnings)
 	}
 
 	if cfg.DBPath != "/data/app.db" {
@@ -239,5 +241,124 @@ func TestPortFromEnv_Loadと同じ値を返す(t *testing.T) {
 		if got := PortFromEnv(getenvFrom(env)); got != cfg.Port {
 			t.Errorf("PORT=%q: PortFromEnv = %q, Load = %q", raw, got, cfg.Port)
 		}
+	}
+}
+
+// ---- SMTP ----
+//
+// 未設定なら送信をスキップして動く（CLAUDE.md のM2タスク）。
+// 一方で「途中まで設定されている」は落とす。送れているつもりで
+// 送れていない状態が一番気付きにくい。
+
+// smtpEnv は SMTP を有効にした環境変数一式を返す。
+func smtpEnv() map[string]string {
+	env := validEnv()
+	env["SMTP_HOST"] = "smtp.example.test"
+	env["SMTP_FROM"] = "noreply@example.test"
+	return env
+}
+
+func TestLoad_SMTPが未設定でも起動できる(t *testing.T) {
+	cfg, _, err := Load(getenvFrom(validEnv()))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.SMTP.Enabled() {
+		t.Error("SMTP_HOST が無いのに Enabled = true")
+	}
+}
+
+func TestLoad_SMTPが揃っていれば有効になる(t *testing.T) {
+	cfg, warnings, err := Load(getenvFrom(smtpEnv()))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.SMTP.Enabled() {
+		t.Fatal("Enabled = false")
+	}
+	if cfg.SMTP.Host != "smtp.example.test" {
+		t.Errorf("Host = %q", cfg.SMTP.Host)
+	}
+	// 未設定なら submission ポート。25 は多くの環境で塞がれている。
+	if cfg.SMTP.Port != defaultSMTPPort {
+		t.Errorf("Port = %q。既定の %q を期待", cfg.SMTP.Port, defaultSMTPPort)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("警告が出ている: %v", warnings)
+	}
+}
+
+func TestLoad_SMTP_FROMが無ければ落とす(t *testing.T) {
+	env := smtpEnv()
+	delete(env, "SMTP_FROM")
+
+	if _, _, err := Load(getenvFrom(env)); err == nil {
+		t.Fatal("差出人が無いまま起動できてしまう")
+	}
+}
+
+func TestLoad_SMTP_FROMの形式を検査する(t *testing.T) {
+	env := smtpEnv()
+	env["SMTP_FROM"] = "not-an-address"
+
+	if _, _, err := Load(getenvFrom(env)); err == nil {
+		t.Fatal("不正な差出人が通ってしまう")
+	}
+}
+
+func TestLoad_SMTP_PORTの形式を検査する(t *testing.T) {
+	for _, raw := range []string{"0", "70000", "abc", "-1"} {
+		env := smtpEnv()
+		env["SMTP_PORT"] = raw
+
+		if _, _, err := Load(getenvFrom(env)); err == nil {
+			t.Errorf("SMTP_PORT=%q が通ってしまう", raw)
+		}
+	}
+}
+
+func TestLoad_認証情報は片方だけだと落とす(t *testing.T) {
+	// 認証を要求するサーバに無認証で繋ぎに行き、送信時に初めて失敗する。
+	// 起動時に気付ける方がよい。
+	only := []map[string]string{
+		{"SMTP_USER": "mailer"},
+		{"SMTP_PASSWORD": "secret"},
+	}
+
+	for _, over := range only {
+		env := smtpEnv()
+		for k, v := range over {
+			env[k] = v
+		}
+
+		if _, _, err := Load(getenvFrom(env)); err == nil {
+			t.Errorf("%v だけで通ってしまう", over)
+		}
+	}
+}
+
+func TestLoad_認証情報が両方あれば通る(t *testing.T) {
+	env := smtpEnv()
+	env["SMTP_USER"] = "mailer"
+	env["SMTP_PASSWORD"] = "secret"
+
+	cfg, _, err := Load(getenvFrom(env))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.SMTP.User != "mailer" || cfg.SMTP.Password != "secret" {
+		t.Errorf("User = %q, Password = %q", cfg.SMTP.User, cfg.SMTP.Password)
+	}
+}
+
+func TestLoad_SMTPを使わないなら残った値を見ない(t *testing.T) {
+	// メールをやめた時に、SMTP_HOST だけコメントアウトして
+	// 他を残すことは普通に起きる。それで起動できなくなると困る。
+	env := validEnv()
+	env["SMTP_PORT"] = "これは不正な値"
+	env["SMTP_USER"] = "mailer"
+
+	if _, _, err := Load(getenvFrom(env)); err != nil {
+		t.Fatalf("SMTP_HOST が無いのに落ちた: %v", err)
 	}
 }
