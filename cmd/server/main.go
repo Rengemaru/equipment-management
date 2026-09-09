@@ -32,6 +32,7 @@ import (
 	"github.com/Rengemaru/equipment-management/internal/item"
 	"github.com/Rengemaru/equipment-management/internal/loan"
 	"github.com/Rengemaru/equipment-management/internal/notify"
+	"github.com/Rengemaru/equipment-management/internal/report"
 	"github.com/Rengemaru/equipment-management/web"
 )
 
@@ -180,6 +181,18 @@ func runServer(ctx context.Context, cfg *config.Config, sqldb *sql.DB) error {
 		return loan.Actor{ID: u.ID, IsAdmin: u.Role == auth.RoleAdmin}, true
 	}
 	loan.NewHandler(loan.NewStore(sqldb), items, mailer.Send, cfg.HostURL, currentUser, authHandler.RequireLogin).Register(mux)
+
+	// 破損報告。報告は全員、追認は admin。
+	// 報告そのものに役割は要らないため、IDだけを渡す。
+	currentUserID := func(ctx context.Context) (int64, bool) {
+		u, ok := auth.UserFrom(ctx)
+		if !ok {
+			return 0, false
+		}
+		return u.ID, true
+	}
+	report.NewHandler(report.NewStore(sqldb), items, currentUserID,
+		authHandler.RequireLogin, authHandler.RequireAdmin).Register(mux)
 
 	// 登録の無い /api/ は JSON で404を返す。これが無いと下の "/" に落ち、
 	// 綴りを間違えたAPIが index.html を返す。フロントは200のHTMLをJSONとして
