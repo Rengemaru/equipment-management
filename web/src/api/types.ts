@@ -92,6 +92,17 @@ export type Item = {
   loan?: ItemLoan | null
 }
 
+/**
+ * Member は代理登録の選択肢に出す利用者。**IDと名前だけ。**
+ *
+ * [[AdminUser]] と別の型にしているのは、返す範囲が違うため。
+ * 兼ねると、運営にしか見せない項目を member 向けの画面が触れる形になる。
+ */
+export type Member = {
+  id: number
+  name: string
+}
+
 /** LoanUser は貸出に関わる人。 */
 export type LoanUser = {
   id: number
