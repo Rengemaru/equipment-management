@@ -65,7 +65,7 @@ func (h *Handler) handlePhotoUpload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	httpx.JSON(w, http.StatusOK, map[string]any{"item": newItemResponse(updated)})
+	httpx.JSON(w, http.StatusOK, map[string]any{"item": NewResponse(updated)})
 }
 
 func (h *Handler) handlePhotoDelete(w http.ResponseWriter, r *http.Request) {
@@ -87,7 +87,7 @@ func (h *Handler) handlePhotoDelete(w http.ResponseWriter, r *http.Request) {
 		log.Printf("items: %v", err)
 	}
 
-	httpx.JSON(w, http.StatusOK, map[string]any{"item": newItemResponse(updated)})
+	httpx.JSON(w, http.StatusOK, map[string]any{"item": NewResponse(updated)})
 }
 
 func (h *Handler) handlePhotoGet(w http.ResponseWriter, r *http.Request) {

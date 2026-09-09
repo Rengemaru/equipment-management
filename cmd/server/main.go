@@ -30,6 +30,7 @@ import (
 	"github.com/Rengemaru/equipment-management/internal/db"
 	"github.com/Rengemaru/equipment-management/internal/httpx"
 	"github.com/Rengemaru/equipment-management/internal/item"
+	"github.com/Rengemaru/equipment-management/internal/loan"
 	"github.com/Rengemaru/equipment-management/web"
 )
 
@@ -149,7 +150,19 @@ func runServer(ctx context.Context, cfg *config.Config, sqldb *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("写真の保存先: %w", err)
 	}
-	item.NewHandler(item.NewStore(sqldb), photos, cfg.HostURL, authHandler.RequireLogin, authHandler.RequireAdmin).Register(mux)
+	items := item.NewStore(sqldb)
+	item.NewHandler(items, photos, cfg.HostURL, authHandler.RequireLogin, authHandler.RequireAdmin).Register(mux)
+
+	// 貸出。loan は auth を参照しない（テストでログイン済みの利用者を
+	// 作れなくなるため）。context からの取り出し方だけをここで渡す。
+	currentUser := func(ctx context.Context) (int64, bool) {
+		u, ok := auth.UserFrom(ctx)
+		if !ok {
+			return 0, false
+		}
+		return u.ID, true
+	}
+	loan.NewHandler(loan.NewStore(sqldb), items, currentUser, authHandler.RequireLogin).Register(mux)
 
 	// 登録の無い /api/ は JSON で404を返す。これが無いと下の "/" に落ち、
 	// 綴りを間違えたAPIが index.html を返す。フロントは200のHTMLをJSONとして
