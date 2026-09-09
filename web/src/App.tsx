@@ -4,6 +4,7 @@ import { useAuth } from './auth/AuthProvider'
 import { RequireAdmin } from './auth/RequireAdmin'
 import { RequireAuth } from './auth/RequireAuth'
 import { useLogout } from './auth/useLogout'
+import AdminDamages from './screens/AdminDamages'
 import AdminItemNew from './screens/AdminItemNew'
 import AdminItems from './screens/AdminItems'
 import AdminItemsImport from './screens/AdminItemsImport'
@@ -153,6 +154,17 @@ export default function App() {
         }
       />
 
+      {/* 破損報告の追認。__承認ではない。__ 報告は既に反映済みで、
+          ここでの操作は事後の確認と処理の記録。 */}
+      <Route
+        path="/admin/damages"
+        element={
+          <RequireAdmin>
+            <AdminDamages />
+          </RequireAdmin>
+        }
+      />
+
       {/* 知らないURLで白い画面を出さない。 */}
       <Route path="*" element={<NotFound />} />
     </Routes>
@@ -209,6 +221,9 @@ function Home() {
             </LinkRow>
             <LinkRow to="/admin/users">
               <span className="text-[17px]">ユーザー管理</span>
+            </LinkRow>
+            <LinkRow to="/admin/damages">
+              <span className="text-[17px]">破損報告</span>
             </LinkRow>
           </List>
         )}
