@@ -4,10 +4,12 @@ import { useNavigate, useParams } from 'react-router'
 import { ApiError, errorMessage } from '../api/client'
 import { getItem } from '../api/items'
 import { borrowItem } from '../api/loans'
-import type { Item } from '../api/types'
+import type { Item, Member } from '../api/types'
+import { listMembers } from '../api/users'
+import { useAuth } from '../auth/AuthProvider'
 import { defaultDueDate, formatDate } from '../lib/date'
 import { Button } from '../ui/Button'
-import { Field, StackedField } from '../ui/Field'
+import { Field, SelectField, StackedField } from '../ui/Field'
 import { Alert, Loading, Notice } from '../ui/Feedback'
 import { Card, List, Row } from '../ui/List'
 import { Screen } from '../ui/Screen'
@@ -30,6 +32,8 @@ import { Screen } from '../ui/Screen'
 export default function ItemBorrow() {
   const { code = '' } = useParams()
   const navigate = useNavigate()
+  const auth = useAuth()
+  const meID = auth.status === 'authenticated' ? auth.user.id : 0
 
   const [item, setItem] = useState<Item | null>(null)
   const [error, setError] = useState('')
@@ -40,6 +44,10 @@ export default function ItemBorrow() {
   const [dueDate, setDueDate] = useState(defaultDueDate())
   const [borrowedAt, setBorrowedAt] = useState('')
   const [note, setNote] = useState('')
+
+  // 借用者。空文字は自分。__既定を自分から動かさない。__
+  const [userID, setUserID] = useState('')
+  const [members, setMembers] = useState<Member[]>([])
 
   useEffect(() => {
     let alive = true
@@ -58,6 +66,24 @@ export default function ItemBorrow() {
     }
   }, [code])
 
+  useEffect(() => {
+    // 「変更する」を開いた人にだけ要る。開くまで取りに行かない。
+    if (!detailed || members.length > 0) return
+
+    let alive = true
+    // 取れなくても借用そのものは成立する。ここで画面を止めない。
+    void listMembers().then(
+      (list) => {
+        if (alive) setMembers(list)
+      },
+      () => {},
+    )
+
+    return () => {
+      alive = false
+    }
+  }, [detailed, members.length])
+
   const back = { to: `/i/${encodeURIComponent(code)}`, label: '備品' }
 
   async function run() {
@@ -66,6 +92,7 @@ export default function ItemBorrow() {
     try {
       await borrowItem(code, {
         // 触っていない項目は送らない。サーバの既定に委ねる。
+        userId: detailed && userID !== '' ? Number(userID) : undefined,
         dueDate: detailed ? dueDate : undefined,
         borrowedAt: detailed && borrowedAt !== '' ? toRFC3339(borrowedAt) : undefined,
         note: detailed ? note : undefined,
@@ -142,6 +169,23 @@ export default function ItemBorrow() {
         </List>
       ) : (
         <List footer="持ち出した後に登録する場合は、借用日時を実際の時刻にしてください。">
+          {/* 代理登録。「〇〇さんが持っていくのを見た」を第三者が登録できる。
+              __本人にはメールで通知され、本人が取り消せる__（m2-spec §4, §5）。 */}
+          <SelectField
+            id="borrower"
+            label="借りる人"
+            value={userID}
+            onChange={(e) => setUserID(e.target.value)}
+          >
+            <option value="">自分</option>
+            {members
+              .filter((m) => m.id !== meID)
+              .map((m) => (
+                <option key={m.id} value={String(m.id)}>
+                  {m.name}
+                </option>
+              ))}
+          </SelectField>
           <Field
             id="due-date"
             label="返却予定日"
@@ -166,9 +210,16 @@ export default function ItemBorrow() {
         </List>
       )}
 
+      {detailed && userID !== '' && (
+        <Notice>
+          {members.find((m) => String(m.id) === userID)?.name ?? 'この人'}
+          さんの借用として記録し、本人にメールで知らせます。
+        </Notice>
+      )}
+
       <div className="mt-6 px-4">
         <Button full disabled={busy} onClick={() => void run()}>
-          {busy ? '記録しています…' : 'この内容で借りる'}
+          {busy ? '記録しています…' : userID === '' ? 'この内容で借りる' : 'この内容で登録する'}
         </Button>
       </div>
     </Screen>

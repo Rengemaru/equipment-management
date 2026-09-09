@@ -1,12 +1,15 @@
 /**
- * ユーザー管理のエンドポイント。すべて admin のみ。
+ * 利用者まわりのエンドポイント。
  *
- * 画面で隠すだけにしない。member が叩いても 403 になることはAPIが保証する
- * （CLAUDE.md）。
+ * **ユーザー管理は admin のみ。** 画面で隠すだけにしない。member が叩いても
+ * 403 になることはAPIが保証する（CLAUDE.md）。
+ *
+ * 例外は `listMembers` で、代理登録の選択肢に使うため member も引ける。
+ * IDと名前しか返らない。
  */
 
 import { request, requestJSON } from './client'
-import type { AdminUser, Role, UserWithPassword } from './types'
+import type { AdminUser, Member, Role, UserWithPassword } from './types'
 
 /** listUsers は利用者を全件返す。無効化された人も含む。 */
 export async function listUsers(): Promise<AdminUser[]> {
@@ -55,4 +58,15 @@ export async function setUserActive(id: number, active: boolean): Promise<AdminU
  */
 export function resetPassword(id: number): Promise<UserWithPassword> {
   return request<UserWithPassword>(`/api/users/${id}/reset-password`, { method: 'POST' })
+}
+
+/**
+ * listMembers は有効な利用者をIDと名前だけで返す。**member も引ける。**
+ *
+ * 代理登録で借用者を選ぶために使う。`listUsers`（admin 限定）とは
+ * 経路も型も別。兼ねると、運営にしか見せない項目が member 向けの画面に届く。
+ */
+export async function listMembers(): Promise<Member[]> {
+  const res = await request<{ members: Member[] }>('/api/members')
+  return res.members
 }

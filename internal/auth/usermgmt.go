@@ -41,6 +41,37 @@ ORDER BY is_active DESC, id DESC`)
 	return users, nil
 }
 
+// ListActive は有効な利用者だけを名前順で返す。
+//
+// 代理登録の選択肢に使う。**卒業者（is_active = 0）は返さない。**
+// 選べても借用APIが 400 で弾くため、選択肢に出す意味がない。
+//
+// List と分けているのは、返す範囲が違うため。1つの関数に「無効を含めるか」の
+// 引数を足すと、呼び出し側の書き間違いで卒業者が選択肢に出る。
+func (s *Store) ListActive(ctx context.Context) ([]*User, error) {
+	rows, err := s.sqldb.QueryContext(ctx, selectColumns+`
+WHERE is_active = 1
+ORDER BY name`)
+	if err != nil {
+		return nil, fmt.Errorf("利用者一覧の取得: %w", err)
+	}
+	defer rows.Close()
+
+	var users []*User
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, fmt.Errorf("利用者一覧の読み取り: %w", err)
+		}
+		users = append(users, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("利用者一覧の読み取り: %w", err)
+	}
+
+	return users, nil
+}
+
 // SetActive は有効・無効を切り替える。
 //
 // 削除は用意しない。users を消すと貸出履歴が壊れる（CLAUDE.md）。
