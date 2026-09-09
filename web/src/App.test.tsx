@@ -30,7 +30,9 @@ test('ログイン済みならトップから備品一覧へ行ける', async ()
 test('割り当てのないURLは見つからないと表示する', async () => {
   stubFetch({ '/api/me': () => errorResponse('ログインしてください', 401) })
 
-  renderApp('/loans')
+  // 割り当てのある経路を例に使わない。__画面を足した瞬間にこのテストが__
+  // __「見つからない」を確かめられなくなる__（実際に /loans を足して起きた）。
+  renderApp('/no-such-screen')
 
   expect(await screen.findByRole('heading', { name: 'ページが見つかりません' })).toBeDefined()
   // 戻る導線はナビゲーションバーに出す（iOS と同じく、行き先の名前だけを出す）。

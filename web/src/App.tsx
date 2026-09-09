@@ -12,7 +12,9 @@ import AdminUsers from './screens/AdminUsers'
 import ItemBorrow from './screens/ItemBorrow'
 import ItemDetail from './screens/ItemDetail'
 import Items from './screens/Items'
+import Loans from './screens/Loans'
 import Login from './screens/Login'
+import MyLoans from './screens/MyLoans'
 import PasswordChange from './screens/PasswordChange'
 import { Empty } from './ui/Feedback'
 import { ButtonRow, LinkRow, List } from './ui/List'
@@ -59,6 +61,27 @@ export default function App() {
         element={
           <RequireAuth>
             <ItemDetail />
+          </RequireAuth>
+        }
+      />
+
+      {/* 貸出中一覧は全メンバーが見られる。誰が何を持っているかが
+          全員に見える状態を作ることが、罰則より強く働く（CLAUDE.md）。 */}
+      <Route
+        path="/loans"
+        element={
+          <RequireAuth>
+            <Loans />
+          </RequireAuth>
+        }
+      />
+
+      {/* 代理登録の通知メールが指す先。身に覚えのない借用をここで取り消す。 */}
+      <Route
+        path="/loans/mine"
+        element={
+          <RequireAuth>
+            <MyLoans />
           </RequireAuth>
         }
       />
