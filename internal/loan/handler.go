@@ -49,6 +49,7 @@ func NewHandler(store *Store, items *item.Store, currentUser CurrentUser, requir
 // Register は担当するルートを mux に登録する。
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("POST /api/items/{code}/loans", h.requireLogin(http.HandlerFunc(h.handleBorrow)))
+	mux.Handle("POST /api/items/{code}/return", h.requireLogin(http.HandlerFunc(h.handleReturn)))
 }
 
 // borrowRequest は借用の入力。**全項目が省略できる。**
@@ -112,6 +113,51 @@ func (h *Handler) handleBorrow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpx.JSON(w, http.StatusCreated, map[string]any{
+		"loan": newLoanResponse(l, now()),
+		"item": item.NewResponse(it),
+	})
+}
+
+// handleReturn は返却を記録する。
+//
+// **本文を読まない。** 返却に入力を足さない（確認ダイアログも出さない）。
+// 誤返却は再度借りれば済むが、入力を求めると記録そのものが飛ぶ。
+func (h *Handler) handleReturn(w http.ResponseWriter, r *http.Request) {
+	userID, ok := h.currentUser(r.Context())
+	if !ok {
+		log.Print("handleReturn: 利用者を取り出せない")
+		httpx.WriteError(w, http.StatusInternalServerError, "サーバ側で問題が起きました")
+		return
+	}
+
+	code := r.PathValue("code")
+	l, err := h.store.Return(r.Context(), code, userID)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrItemNotFound):
+			httpx.WriteError(w, http.StatusNotFound, ErrItemNotFound.Error())
+
+		case errors.Is(err, ErrNotBorrowed):
+			// 二重タップと、他の人が先に返した場合の両方がここに来る。
+			// 200 で黙って成功にしない。画面は 409 を受けて読み直せばよく、
+			// 「返した気になっているが記録が無い」より遥かに良い。
+			httpx.WriteErrorCode(w, http.StatusConflict, "not_borrowed", "この備品は貸出中ではありません")
+
+		default:
+			log.Printf("返却の登録: %v", err)
+			httpx.WriteError(w, http.StatusInternalServerError, "サーバ側で問題が起きました")
+		}
+		return
+	}
+
+	it, err := h.items.ByCode(r.Context(), code)
+	if err != nil {
+		log.Printf("返却後の備品取得: %v", err)
+		httpx.WriteError(w, http.StatusInternalServerError, "サーバ側で問題が起きました")
+		return
+	}
+
+	httpx.JSON(w, http.StatusOK, map[string]any{
 		"loan": newLoanResponse(l, now()),
 		"item": item.NewResponse(it),
 	})

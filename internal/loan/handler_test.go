@@ -256,6 +256,73 @@ func TestHandleBorrow_代理登録は借用者と登録者を分けて返す(t *
 	}
 }
 
+func TestHandleReturn_返却できる(t *testing.T) {
+	h, s, userID := newTestHandler(t)
+	if _, err := s.Borrow(context.Background(), "0001", userID, Request{}); err != nil {
+		t.Fatalf("Borrow: %v", err)
+	}
+
+	w := post(t, h, "/api/items/0001/return", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (%s)", w.Code, w.Body.String())
+	}
+
+	l, it := decodeBorrow(t, w)
+	if l.ReturnedAt == nil {
+		t.Error("returned_at が返っていない")
+	}
+	if l.ReturnedBy == nil || l.ReturnedBy.ID != userID {
+		t.Errorf("returned_by = %v, want %d", l.ReturnedBy, userID)
+	}
+	if it.Code != "0001" {
+		t.Errorf("備品コード = %q, want 0001", it.Code)
+	}
+}
+
+// 棚に戻っているのを見つけた人が押せること。
+func TestHandleReturn_借用者以外でも返却できる(t *testing.T) {
+	h, s, finder := newTestHandler(t)
+	borrower := insertUser(t, s, "佐藤", true)
+	if _, err := s.Borrow(context.Background(), "0001", borrower, Request{}); err != nil {
+		t.Fatalf("Borrow: %v", err)
+	}
+
+	w := post(t, h, "/api/items/0001/return", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (%s)", w.Code, w.Body.String())
+	}
+
+	l, _ := decodeBorrow(t, w)
+	if l.User.ID != borrower {
+		t.Errorf("借用者 = %d, want %d", l.User.ID, borrower)
+	}
+	if l.ReturnedBy == nil || l.ReturnedBy.ID != finder {
+		t.Errorf("returned_by = %v, want %d", l.ReturnedBy, finder)
+	}
+}
+
+// 二重タップを 200 で黙って成功にしない。
+func TestHandleReturn_貸出中でなければ409(t *testing.T) {
+	h, _, _ := newTestHandler(t)
+
+	w := post(t, h, "/api/items/0001/return", "")
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (%s)", w.Code, w.Body.String())
+	}
+	if code := decodeError(t, w); code != "not_borrowed" {
+		t.Errorf("code = %q, want not_borrowed", code)
+	}
+}
+
+func TestHandleReturn_知らない備品は404(t *testing.T) {
+	h, _, _ := newTestHandler(t)
+
+	w := post(t, h, "/api/items/9999/return", "")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 (%s)", w.Code, w.Body.String())
+	}
+}
+
 // 綴り違いを黙って無視しない。フロントもこのリポジトリで書くため、早く気付ける方がよい。
 func TestHandleBorrow_知らない項目は400(t *testing.T) {
 	h, _, _ := newTestHandler(t)

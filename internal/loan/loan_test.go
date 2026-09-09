@@ -408,21 +408,132 @@ func TestBorrow_返却後は再度借りられる(t *testing.T) {
 	s, userID := fixture(t)
 	ctx := context.Background()
 
+	if _, err := s.Borrow(ctx, "0001", userID, Request{}); err != nil {
+		t.Fatalf("Borrow: %v", err)
+	}
+	if _, err := s.Return(ctx, "0001", userID); err != nil {
+		t.Fatalf("Return: %v", err)
+	}
+
+	if _, err := s.Borrow(ctx, "0001", userID, Request{}); err != nil {
+		t.Fatalf("返却後の Borrow: %v", err)
+	}
+}
+
+func TestReturn_借用者本人が返却できる(t *testing.T) {
+	s, userID := fixture(t)
+	ctx := context.Background()
+
+	if _, err := s.Borrow(ctx, "0001", userID, Request{}); err != nil {
+		t.Fatalf("Borrow: %v", err)
+	}
+
+	l, err := s.Return(ctx, "0001", userID)
+	if err != nil {
+		t.Fatalf("Return: %v", err)
+	}
+
+	if l.ReturnedAt == nil {
+		t.Fatal("returned_at が入っていない")
+	}
+	if l.ReturnedBy == nil || l.ReturnedBy.ID != userID {
+		t.Errorf("returned_by = %v, want %d", l.ReturnedBy, userID)
+	}
+}
+
+// 棚に戻っているのを見つけた人が処理できないと、記録が永久にズレたままになる。
+func TestReturn_借用者以外も返却できる(t *testing.T) {
+	s, borrower := fixture(t)
+	finder := insertUser(t, s, "佐藤", true)
+	ctx := context.Background()
+
+	if _, err := s.Borrow(ctx, "0001", borrower, Request{}); err != nil {
+		t.Fatalf("Borrow: %v", err)
+	}
+
+	l, err := s.Return(ctx, "0001", finder)
+	if err != nil {
+		t.Fatalf("Return: %v", err)
+	}
+
+	if l.User.ID != borrower {
+		t.Errorf("借用者 = %d, want %d", l.User.ID, borrower)
+	}
+	if l.ReturnedBy == nil || l.ReturnedBy.ID != finder {
+		t.Errorf("returned_by = %v, want %d（戻した人を残す）", l.ReturnedBy, finder)
+	}
+	if l.ReturnedBy != nil && l.ReturnedBy.Name != "佐藤" {
+		t.Errorf("returned_by の名前 = %q, want 佐藤", l.ReturnedBy.Name)
+	}
+}
+
+func TestReturn_貸出中でなければ拒否する(t *testing.T) {
+	s, userID := fixture(t)
+	ctx := context.Background()
+
+	// 一度も借りていない。
+	if _, err := s.Return(ctx, "0001", userID); !errors.Is(err, ErrNotBorrowed) {
+		t.Fatalf("未貸出: err = %v, want ErrNotBorrowed", err)
+	}
+
+	if _, err := s.Borrow(ctx, "0001", userID, Request{}); err != nil {
+		t.Fatalf("Borrow: %v", err)
+	}
+	if _, err := s.Return(ctx, "0001", userID); err != nil {
+		t.Fatalf("Return: %v", err)
+	}
+
+	// 二重タップ。黙って成功にしない。
+	if _, err := s.Return(ctx, "0001", userID); !errors.Is(err, ErrNotBorrowed) {
+		t.Fatalf("2回目: err = %v, want ErrNotBorrowed", err)
+	}
+}
+
+func TestReturn_備品が無ければ見つからない(t *testing.T) {
+	s, userID := fixture(t)
+
+	if _, err := s.Return(context.Background(), "9999", userID); !errors.Is(err, ErrItemNotFound) {
+		t.Fatalf("err = %v, want ErrItemNotFound", err)
+	}
+}
+
+// 持ち出したまま廃棄扱いになった備品を戻せないと、貸出中の行が永久に残る。
+func TestReturn_廃棄済みでも返却できる(t *testing.T) {
+	s, userID := fixture(t)
+	ctx := context.Background()
+
+	if _, err := s.Borrow(ctx, "0001", userID, Request{}); err != nil {
+		t.Fatalf("Borrow: %v", err)
+	}
+	if _, err := s.sqldb.Exec(`UPDATE items SET condition = '廃棄' WHERE code = '0001'`); err != nil {
+		t.Fatalf("廃棄にする: %v", err)
+	}
+
+	if _, err := s.Return(ctx, "0001", userID); err != nil {
+		t.Fatalf("Return: %v", err)
+	}
+}
+
+// 取り消した貸出は「返せる貸出」ではない。取り消しと返却は別の事実。
+func TestReturn_取り消し済みの貸出は返却対象にならない(t *testing.T) {
+	s, userID := fixture(t)
+	ctx := context.Background()
+
 	l, err := s.Borrow(ctx, "0001", userID, Request{})
 	if err != nil {
 		t.Fatalf("Borrow: %v", err)
 	}
 
-	// 返却APIは M2-3。ここでは部分ユニークインデックスの条件だけを確かめる。
+	// 取り消しAPIは M2-4。ここでは列の条件だけを確かめる。
 	if _, err := s.sqldb.Exec(
-		`UPDATE loans SET returned_at = datetime('now'), returned_by = ? WHERE id = ?`,
+		`UPDATE loans SET cancelled_at = datetime('now'), cancelled_by = ? WHERE id = ?`,
 		userID, l.ID,
 	); err != nil {
-		t.Fatalf("返却: %v", err)
+		t.Fatalf("取り消し: %v", err)
 	}
 
-	if _, err := s.Borrow(ctx, "0001", userID, Request{}); err != nil {
-		t.Fatalf("返却後の Borrow: %v", err)
+	if _, err := s.Return(ctx, "0001", userID); !errors.Is(err, ErrNotBorrowed) {
+		t.Fatalf("err = %v, want ErrNotBorrowed", err)
 	}
 }
 
