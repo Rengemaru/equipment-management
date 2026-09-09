@@ -390,17 +390,125 @@ func TestBorrow_取り消した貸出は二重貸出にならない(t *testing.T
 	if err != nil {
 		t.Fatalf("Borrow: %v", err)
 	}
-
-	// 取り消しAPIは M2-4。ここでは部分ユニークインデックスの条件だけを確かめる。
-	if _, err := s.sqldb.Exec(
-		`UPDATE loans SET cancelled_at = datetime('now'), cancelled_by = ? WHERE id = ?`,
-		userID, l.ID,
-	); err != nil {
-		t.Fatalf("取り消し: %v", err)
+	if _, err := s.Cancel(ctx, l.ID, Actor{ID: userID}, ""); err != nil {
+		t.Fatalf("Cancel: %v", err)
 	}
 
 	if _, err := s.Borrow(ctx, "0001", userID, Request{}); err != nil {
 		t.Fatalf("取り消し後の Borrow: %v", err)
+	}
+}
+
+// 取り消せるのは借用者本人・登録者・admin の3者。
+func TestCancel_取り消せる人(t *testing.T) {
+	tests := []struct {
+		name  string
+		actor func(borrower, registrar, stranger int64) Actor
+		want  error
+	}{
+		{"借用者本人", func(b, _, _ int64) Actor { return Actor{ID: b} }, nil},
+		{"登録者", func(_, r, _ int64) Actor { return Actor{ID: r} }, nil},
+		{"admin", func(_, _, s int64) Actor { return Actor{ID: s, IsAdmin: true} }, nil},
+		{"無関係のmember", func(_, _, s int64) Actor { return Actor{ID: s} }, ErrForbidden},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, registrar := fixture(t)
+			borrower := insertUser(t, s, "佐藤", true)
+			stranger := insertUser(t, s, "田中", true)
+			ctx := context.Background()
+
+			l, err := s.Borrow(ctx, "0001", registrar, Request{UserID: borrower})
+			if err != nil {
+				t.Fatalf("Borrow: %v", err)
+			}
+
+			_, err = s.Cancel(ctx, l.ID, tt.actor(borrower, registrar, stranger), "誤登録")
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("err = %v, want %v", err, tt.want)
+			}
+		})
+	}
+}
+
+// 取り消しは返却ではない。返却済みの履歴を後から消せてはいけない。
+func TestCancel_返却済みは取り消せない(t *testing.T) {
+	s, userID := fixture(t)
+	ctx := context.Background()
+
+	l, err := s.Borrow(ctx, "0001", userID, Request{})
+	if err != nil {
+		t.Fatalf("Borrow: %v", err)
+	}
+	if _, err := s.Return(ctx, "0001", userID); err != nil {
+		t.Fatalf("Return: %v", err)
+	}
+
+	if _, err := s.Cancel(ctx, l.ID, Actor{ID: userID}, ""); !errors.Is(err, ErrAlreadyReturned) {
+		t.Fatalf("err = %v, want ErrAlreadyReturned", err)
+	}
+}
+
+func TestCancel_二重の取り消しを拒否する(t *testing.T) {
+	s, userID := fixture(t)
+	ctx := context.Background()
+
+	l, err := s.Borrow(ctx, "0001", userID, Request{})
+	if err != nil {
+		t.Fatalf("Borrow: %v", err)
+	}
+	if _, err := s.Cancel(ctx, l.ID, Actor{ID: userID}, ""); err != nil {
+		t.Fatalf("1回目の Cancel: %v", err)
+	}
+
+	if _, err := s.Cancel(ctx, l.ID, Actor{ID: userID}, ""); !errors.Is(err, ErrAlreadyCancelled) {
+		t.Fatalf("err = %v, want ErrAlreadyCancelled", err)
+	}
+}
+
+// 行は消さない。誤登録も「そう記録された」という事実として残す。
+func TestCancel_行を残して理由を記録する(t *testing.T) {
+	s, registrar := fixture(t)
+	borrower := insertUser(t, s, "佐藤", true)
+	ctx := context.Background()
+
+	l, err := s.Borrow(ctx, "0001", registrar, Request{UserID: borrower})
+	if err != nil {
+		t.Fatalf("Borrow: %v", err)
+	}
+	if _, err := s.Cancel(ctx, l.ID, Actor{ID: borrower}, "  自分は借りていない  "); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+
+	var (
+		by     int64
+		reason string
+		at     string
+	)
+	err = s.sqldb.QueryRow(
+		`SELECT cancelled_by, cancel_reason, cancelled_at FROM loans WHERE id = ?`, l.ID,
+	).Scan(&by, &reason, &at)
+	if err != nil {
+		t.Fatalf("取り消しの記録: %v", err)
+	}
+
+	if by != borrower {
+		t.Errorf("cancelled_by = %d, want %d", by, borrower)
+	}
+	if reason != "自分は借りていない" {
+		t.Errorf("cancel_reason = %q（前後の空白を落とすこと）", reason)
+	}
+	if at == "" {
+		t.Error("cancelled_at が空")
+	}
+}
+
+func TestCancel_知らない貸出は見つからない(t *testing.T) {
+	s, userID := fixture(t)
+
+	if _, err := s.Cancel(context.Background(), 999, Actor{ID: userID}, ""); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }
 

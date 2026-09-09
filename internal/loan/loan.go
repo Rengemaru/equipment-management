@@ -69,6 +69,21 @@ var (
 	// 黙って成功にしない。「返した気になっているが記録が無い」状態を作らない。
 	ErrNotBorrowed = errors.New("この備品は貸出中ではない")
 
+	// ErrForbidden は取り消す権限が無いこと。
+	//
+	// 取り消せるのは借用者本人・登録者・admin の3者。無関係の人が
+	// 他人の貸出を消せると、記録の信頼性が根本から崩れる。
+	ErrForbidden = errors.New("この貸出を取り消す権限が無い")
+
+	// ErrAlreadyReturned は返却済みの貸出を取り消そうとしたこと。
+	//
+	// 返却済みの履歴は消せない。取り消しは「そもそも借りていない」を表すもので、
+	// 実際に借りて返した事実を後から無かったことにする手段ではない。
+	ErrAlreadyReturned = errors.New("返却済みの貸出は取り消せない")
+
+	// ErrAlreadyCancelled は取り消し済み。
+	ErrAlreadyCancelled = errors.New("この貸出は取り消し済み")
+
 	// ErrFutureBorrowedAt は借用日時が未来。
 	//
 	// 事後登録（過去に持ち出した分の記録）は許すが、未来は許さない。
@@ -82,6 +97,11 @@ var (
 type UserRef struct {
 	ID   int64
 	Name string
+
+	// Email は借用者にだけ入る（代理登録の通知に使う）。未設定なら空文字。
+	//
+	// **APIの応答に載せないこと。** loanResponse は ID と Name だけを写す。
+	Email string
 }
 
 // Loan は1件の貸出。返却しても行を削除しない。
@@ -313,6 +333,71 @@ WHERE id = ?`
 	return l, nil
 }
 
+// Cancel は誤登録の貸出を取り消す。by は操作した人。
+//
+// **行は削除しない。** cancelled_at を立てる。「返却済み」と「そもそも借りていない」は
+// 別の事実で、取り消しを返却として記録すると、借りていない人の返却履歴が残り、
+// 破損の追跡時に誤った経路をたどることになる（docs/m2-implementation-spec.md §5）。
+//
+// 取り消せるのは未返却の貸出だけ。返却済みの履歴は消せない。
+func (s *Store) Cancel(ctx context.Context, loanID int64, by Actor, reason string) (*Loan, error) {
+	tx, err := s.sqldb.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("貸出の取り消し: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	const find = `
+SELECT user_id, registered_by, returned_at, cancelled_at
+FROM loans WHERE id = ?`
+
+	var (
+		userID       int64
+		registeredBy int64
+		returnedAt   sql.NullString
+		cancelledAt  sql.NullString
+	)
+	err = tx.QueryRowContext(ctx, find, loanID).Scan(&userID, &registeredBy, &returnedAt, &cancelledAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("貸出の取得: %w", err)
+	}
+
+	// 権限を先に見る。返却済みかどうかを、権限の無い人に教えない。
+	if !by.IsAdmin && by.ID != userID && by.ID != registeredBy {
+		return nil, ErrForbidden
+	}
+	if cancelledAt.Valid {
+		return nil, ErrAlreadyCancelled
+	}
+	if returnedAt.Valid {
+		return nil, ErrAlreadyReturned
+	}
+
+	const q = `
+UPDATE loans
+SET cancelled_at = datetime('now'), cancelled_by = ?, cancel_reason = ?,
+    updated_at = datetime('now')
+WHERE id = ?`
+
+	if _, err := tx.ExecContext(ctx, q, by.ID, strings.TrimSpace(reason), loanID); err != nil {
+		return nil, fmt.Errorf("貸出の取り消し: %w", err)
+	}
+
+	l, err := queryLoan(ctx, tx, loanID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("貸出の取り消し: %w", err)
+	}
+
+	return l, nil
+}
+
 // resolveDueDate は返却予定日を決める。空なら借用日+14日。
 //
 // 借用日を基準にする。現在時刻を基準にすると、事後登録で過去の借用を
@@ -413,7 +498,7 @@ func borrower(ctx context.Context, tx *sql.Tx, registeredBy, requested int64) (i
 // selectColumns は Loan を組み立てる列の並び。scanLoan と対で保つ。
 const selectColumns = `
 SELECT l.id, l.item_id, i.code, i.name,
-       l.user_id, bu.name,
+       l.user_id, bu.name, bu.email,
        l.registered_by, ru.name,
        l.borrowed_at, l.due_date,
        l.returned_at, l.returned_by, rbu.name,
@@ -452,6 +537,7 @@ type row interface {
 func scanLoan(r row) (*Loan, error) {
 	var (
 		l            Loan
+		borrowerMail sql.NullString
 		borrowedAt   string
 		returnedAt   sql.NullString
 		returnedBy   sql.NullInt64
@@ -461,7 +547,7 @@ func scanLoan(r row) (*Loan, error) {
 
 	err := r.Scan(
 		&l.ID, &l.ItemID, &l.ItemCode, &l.ItemName,
-		&l.User.ID, &l.User.Name,
+		&l.User.ID, &l.User.Name, &borrowerMail,
 		&l.RegisteredBy.ID, &l.RegisteredBy.Name,
 		&borrowedAt, &l.DueDate,
 		&returnedAt, &returnedBy, &returnedName,
@@ -470,6 +556,8 @@ func scanLoan(r row) (*Loan, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	l.User.Email = borrowerMail.String
 
 	l.BorrowedAt, err = parseStoredTime(borrowedAt)
 	if err != nil {

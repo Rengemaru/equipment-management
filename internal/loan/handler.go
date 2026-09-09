@@ -5,6 +5,8 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Rengemaru/equipment-management/internal/httpx"
@@ -15,12 +17,27 @@ import (
 // Middleware は経路に被せる認証・権限のミドルウェア。
 type Middleware func(http.Handler) http.Handler
 
-// CurrentUser は要求を出した利用者のIDを返す。
+// Actor は要求を出した利用者。
+//
+// 取り消しの可否に役割が要るため、IDだけでは足りない。
+type Actor struct {
+	ID      int64
+	IsAdmin bool
+}
+
+// CurrentUser は要求を出した利用者を返す。
 //
 // auth パッケージを直接参照しない。参照すると、context に利用者を入れる手段が
 // auth の非公開関数だけになり、このパッケージのテストで「ログイン済みの誰か」を
 // 作れなくなる。取り出し方だけを外から渡してもらう。
-type CurrentUser func(ctx context.Context) (int64, bool)
+type CurrentUser func(ctx context.Context) (Actor, bool)
+
+// Notifier はメールを送る。notify.Mailer.Send をそのまま渡せる形にしている。
+//
+// notify パッケージを参照しないのは、テストで送信内容を捕まえるため。
+// **送信先が未設定なら notify 側が何もせず nil を返す。**
+// ここに「設定されていれば送る」という分岐を書かない（書き忘れた経路ができる）。
+type Notifier func(ctx context.Context, to []string, subject, body string) error
 
 // Handler は貸出まわりの HTTP ハンドラ。
 type Handler struct {
@@ -32,15 +49,23 @@ type Handler struct {
 	// 画面に再取得させず、更新後の姿をその場で返す。
 	items *item.Store
 
+	// notify は代理登録を本人へ知らせる。
+	notify Notifier
+
+	// hostURL は通知に載せる訂正先URLの土台（config.HostURL）。
+	hostURL string
+
 	currentUser  CurrentUser
 	requireLogin Middleware
 }
 
 // NewHandler は Handler を作る。
-func NewHandler(store *Store, items *item.Store, currentUser CurrentUser, requireLogin Middleware) *Handler {
+func NewHandler(store *Store, items *item.Store, notify Notifier, hostURL string, currentUser CurrentUser, requireLogin Middleware) *Handler {
 	return &Handler{
 		store:        store,
 		items:        items,
+		notify:       notify,
+		hostURL:      hostURL,
 		currentUser:  currentUser,
 		requireLogin: requireLogin,
 	}
@@ -50,6 +75,7 @@ func NewHandler(store *Store, items *item.Store, currentUser CurrentUser, requir
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("POST /api/items/{code}/loans", h.requireLogin(http.HandlerFunc(h.handleBorrow)))
 	mux.Handle("POST /api/items/{code}/return", h.requireLogin(http.HandlerFunc(h.handleReturn)))
+	mux.Handle("POST /api/loans/{id}/cancel", h.requireLogin(http.HandlerFunc(h.handleCancel)))
 }
 
 // borrowRequest は借用の入力。**全項目が省略できる。**
@@ -69,7 +95,7 @@ type borrowRequest struct {
 }
 
 func (h *Handler) handleBorrow(w http.ResponseWriter, r *http.Request) {
-	userID, ok := h.currentUser(r.Context())
+	actor, ok := h.currentUser(r.Context())
 	if !ok {
 		// requireLogin を通っている以上ここには来ない。来たなら経路の組み立てが壊れている。
 		log.Print("handleBorrow: 利用者を取り出せない")
@@ -94,7 +120,7 @@ func (h *Handler) handleBorrow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	code := r.PathValue("code")
-	l, err := h.store.Borrow(r.Context(), code, userID, Request{
+	l, err := h.store.Borrow(r.Context(), code, actor.ID, Request{
 		UserID:     req.UserID,
 		DueDate:    req.DueDate,
 		BorrowedAt: borrowedAt,
@@ -112,6 +138,8 @@ func (h *Handler) handleBorrow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.notifyProxyBorrow(r.Context(), l)
+
 	httpx.JSON(w, http.StatusCreated, map[string]any{
 		"loan": newLoanResponse(l, now()),
 		"item": item.NewResponse(it),
@@ -123,7 +151,7 @@ func (h *Handler) handleBorrow(w http.ResponseWriter, r *http.Request) {
 // **本文を読まない。** 返却に入力を足さない（確認ダイアログも出さない）。
 // 誤返却は再度借りれば済むが、入力を求めると記録そのものが飛ぶ。
 func (h *Handler) handleReturn(w http.ResponseWriter, r *http.Request) {
-	userID, ok := h.currentUser(r.Context())
+	actor, ok := h.currentUser(r.Context())
 	if !ok {
 		log.Print("handleReturn: 利用者を取り出せない")
 		httpx.WriteError(w, http.StatusInternalServerError, "サーバ側で問題が起きました")
@@ -131,7 +159,7 @@ func (h *Handler) handleReturn(w http.ResponseWriter, r *http.Request) {
 	}
 
 	code := r.PathValue("code")
-	l, err := h.store.Return(r.Context(), code, userID)
+	l, err := h.store.Return(r.Context(), code, actor.ID)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrItemNotFound):
@@ -153,6 +181,105 @@ func (h *Handler) handleReturn(w http.ResponseWriter, r *http.Request) {
 	it, err := h.items.ByCode(r.Context(), code)
 	if err != nil {
 		log.Printf("返却後の備品取得: %v", err)
+		httpx.WriteError(w, http.StatusInternalServerError, "サーバ側で問題が起きました")
+		return
+	}
+
+	httpx.JSON(w, http.StatusOK, map[string]any{
+		"loan": newLoanResponse(l, now()),
+		"item": item.NewResponse(it),
+	})
+}
+
+// notifyProxyBorrow は代理登録された借用者本人へ知らせる。
+//
+// **送信の失敗で借用を巻き戻さない。** 通知が送れなかったことを理由に記録を消すと、
+// 最も避けたい「記録が無い」状態に戻る。ログに残して先へ進む
+// （docs/m2-implementation-spec.md §4）。
+func (h *Handler) notifyProxyBorrow(ctx context.Context, l *Loan) {
+	// 自分で自分の借用を登録した場合は送らない。
+	if !l.IsProxy() {
+		return
+	}
+	// メールアドレスは任意項目。未設定の人が居るのは異常ではない。
+	if l.User.Email == "" {
+		return
+	}
+
+	subject := "[備品] あなたの名前で借用が登録されました"
+	body := strings.Join([]string{
+		l.User.Name + " さん",
+		"",
+		l.RegisteredBy.Name + " さんが、あなたの名前で借用を登録しました。",
+		"",
+		"備品: " + l.ItemCode + " " + l.ItemName,
+		"借用日時: " + formatTime(l.BorrowedAt),
+		"返却予定日: " + l.DueDate,
+		"",
+		"身に覚えがない場合は、次のページから取り消してください。",
+		h.hostURL + "/loans/mine",
+		"",
+	}, "\n")
+
+	if err := h.notify(ctx, []string{l.User.Email}, subject, body); err != nil {
+		log.Printf("代理登録の通知（貸出 %d）: %v", l.ID, err)
+	}
+}
+
+// cancelRequest は取り消しの入力。
+type cancelRequest struct {
+	// Reason は任意。必須にすると、他人の誤登録を直す側に手間を課すことになる。
+	Reason string `json:"reason"`
+}
+
+// handleCancel は誤登録の貸出を取り消す。
+func (h *Handler) handleCancel(w http.ResponseWriter, r *http.Request) {
+	actor, ok := h.currentUser(r.Context())
+	if !ok {
+		log.Print("handleCancel: 利用者を取り出せない")
+		httpx.WriteError(w, http.StatusInternalServerError, "サーバ側で問題が起きました")
+		return
+	}
+
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		httpx.WriteError(w, http.StatusNotFound, ErrNotFound.Error())
+		return
+	}
+
+	var req cancelRequest
+	if r.ContentLength != 0 {
+		if err := httpx.DecodeJSON(w, r, &req); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+
+	l, err := h.store.Cancel(r.Context(), id, actor, req.Reason)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound):
+			httpx.WriteError(w, http.StatusNotFound, ErrNotFound.Error())
+
+		case errors.Is(err, ErrForbidden):
+			httpx.WriteError(w, http.StatusForbidden, ErrForbidden.Error())
+
+		case errors.Is(err, ErrAlreadyReturned):
+			httpx.WriteErrorCode(w, http.StatusConflict, "already_returned", ErrAlreadyReturned.Error())
+
+		case errors.Is(err, ErrAlreadyCancelled):
+			httpx.WriteErrorCode(w, http.StatusConflict, "already_cancelled", ErrAlreadyCancelled.Error())
+
+		default:
+			log.Printf("貸出の取り消し: %v", err)
+			httpx.WriteError(w, http.StatusInternalServerError, "サーバ側で問題が起きました")
+		}
+		return
+	}
+
+	it, err := h.items.ByCode(r.Context(), l.ItemCode)
+	if err != nil {
+		log.Printf("取り消し後の備品取得: %v", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "サーバ側で問題が起きました")
 		return
 	}
