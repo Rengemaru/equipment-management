@@ -28,11 +28,14 @@ const sqliteTimeLayout = "2006-01-02 15:04:05"
 // （docs/m2-implementation-spec.md §3）。
 const defaultLoanDays = 14
 
-// conditionDiscarded は items.condition の廃棄。
+// items の列に入る値。
 //
 // item パッケージの定数を参照しない。M2-7 で備品詳細が貸出を参照するため、
 // 逆向きの依存をここで作ると循環する。DBの CHECK 制約と対で保つこと。
-const conditionDiscarded = "廃棄"
+const (
+	conditionDiscarded = "廃棄"
+	locationInStock    = "在庫"
+)
 
 // 借用が成立しない理由。ハンドラが status と code に振り分ける。
 //
@@ -223,6 +226,12 @@ VALUES (?, ?, ?, ?, ?, ?)`
 		return nil, fmt.Errorf("借用の登録: %w", err)
 	}
 
+	// 借りられたということは棚に戻っていたということ。
+	// 見つかった事実を借りた人に報告させない（追加操作を求めない）。
+	if err := restoreFromMissing(ctx, tx, itemID); err != nil {
+		return nil, err
+	}
+
 	l, err := queryLoan(ctx, tx, id)
 	if err != nil {
 		return nil, err
@@ -283,9 +292,31 @@ func borrowableItem(ctx context.Context, tx *sql.Tx, code string) (int64, error)
 		return 0, ErrDiscarded
 	}
 
-	// location_status は見ない。所在不明でも借用は成立する
-	// （見つかったという事実は借用操作から導く。M2-2 で在庫へ戻す）。
+	// location_status は見ない。所在不明でも借用は成立し、
+	// 成立した時点で在庫へ戻す（restoreFromMissing）。
 	return id, nil
+}
+
+// restoreFromMissing は所在不明の備品を在庫に戻す。
+//
+// 借用と同じトランザクションで行う。分けると、借用だけ通って復帰が漏れた行が
+// 残り、貸出中なのに所在不明という記録になる。
+//
+// 在庫のものは触らない（updated_at を動かさない）。借りるたびに更新日時が
+// 変わると、一覧の「最終更新」が貸出の履歴と区別できなくなる。
+//
+// 該当する missing_reports を発見済みにするのは M3。M2 にそのテーブルは無い
+// （docs/m2-implementation-spec.md §3）。
+func restoreFromMissing(ctx context.Context, tx *sql.Tx, itemID int64) error {
+	const q = `
+UPDATE items
+SET location_status = ?, updated_at = datetime('now')
+WHERE id = ? AND location_status <> ?`
+
+	if _, err := tx.ExecContext(ctx, q, locationInStock, itemID, locationInStock); err != nil {
+		return fmt.Errorf("所在の復帰: %w", err)
+	}
+	return nil
 }
 
 // borrower は借用者のIDを決める。requested が 0 なら登録者本人。

@@ -278,15 +278,108 @@ func TestBorrow_JSTの未明に借りても返却予定日がずれない(t *tes
 	}
 }
 
-// 所在不明でも借用そのものは成立する。在庫への自動復帰は M2-2 で足す。
-func TestBorrow_所在不明でも借用できる(t *testing.T) {
-	s := newTestStore(t)
-	userID := insertUser(t, s, "山田", true)
-	insertItem(t, s, "0001", "三脚", map[string]any{"location_status": "所在不明_未確認"})
+// 借りられたということは棚に戻っていたということ。
+// 見つかった事実を、借りた人の追加操作ではなく借用操作から導く。
+func TestBorrow_所在不明の備品を借りると在庫に戻る(t *testing.T) {
+	for _, status := range []string{"所在不明_未確認", "所在不明_確定"} {
+		t.Run(status, func(t *testing.T) {
+			s := newTestStore(t)
+			userID := insertUser(t, s, "山田", true)
+			insertItem(t, s, "0001", "三脚", map[string]any{"location_status": status})
+
+			if _, err := s.Borrow(context.Background(), "0001", userID, Request{}); err != nil {
+				t.Fatalf("Borrow: %v", err)
+			}
+
+			if got := locationStatus(t, s, "0001"); got != "在庫" {
+				t.Errorf("location_status = %q, want 在庫", got)
+			}
+		})
+	}
+}
+
+// 借用が失敗したら所在も動かさない。同じトランザクションで行うことの確認。
+func TestBorrow_借用が失敗したら所在は変わらない(t *testing.T) {
+	t.Run("廃棄済み", func(t *testing.T) {
+		s := newTestStore(t)
+		userID := insertUser(t, s, "山田", true)
+		insertItem(t, s, "0001", "壊れた三脚", map[string]any{
+			"condition":       "廃棄",
+			"location_status": "所在不明_確定",
+		})
+
+		if _, err := s.Borrow(context.Background(), "0001", userID, Request{}); !errors.Is(err, ErrDiscarded) {
+			t.Fatalf("err = %v, want ErrDiscarded", err)
+		}
+		if got := locationStatus(t, s, "0001"); got != "所在不明_確定" {
+			t.Errorf("location_status = %q, want 所在不明_確定", got)
+		}
+	})
+
+	t.Run("貸出中", func(t *testing.T) {
+		s := newTestStore(t)
+		userID := insertUser(t, s, "山田", true)
+		other := insertUser(t, s, "佐藤", true)
+		insertItem(t, s, "0001", "三脚", map[string]any{"location_status": "所在不明_未確認"})
+
+		// 借用APIを通さずに貸出中にする。Borrow で作ると、その時点で在庫に戻ってしまう。
+		if _, err := s.sqldb.Exec(
+			`INSERT INTO loans (item_id, user_id, registered_by, due_date)
+			 SELECT id, ?, ?, '2099-01-01' FROM items WHERE code = '0001'`,
+			userID, userID,
+		); err != nil {
+			t.Fatalf("貸出中にする: %v", err)
+		}
+
+		if _, err := s.Borrow(context.Background(), "0001", other, Request{}); !errors.Is(err, ErrAlreadyBorrowed) {
+			t.Fatalf("err = %v, want ErrAlreadyBorrowed", err)
+		}
+		if got := locationStatus(t, s, "0001"); got != "所在不明_未確認" {
+			t.Errorf("location_status = %q, want 所在不明_未確認", got)
+		}
+	})
+}
+
+// 在庫のものは触らない。借りるたびに更新日時が動くと、
+// 一覧の「最終更新」が貸出の履歴と区別できなくなる。
+func TestBorrow_在庫のままなら更新日時を動かさない(t *testing.T) {
+	s, userID := fixture(t)
+
+	// 既定値のままだと更新の有無を1秒未満で見分けられない。過去の値を置いておく。
+	const before = "2020-01-01 00:00:00"
+	if _, err := s.sqldb.Exec(`UPDATE items SET updated_at = ? WHERE code = '0001'`, before); err != nil {
+		t.Fatalf("updated_at の設定: %v", err)
+	}
 
 	if _, err := s.Borrow(context.Background(), "0001", userID, Request{}); err != nil {
 		t.Fatalf("Borrow: %v", err)
 	}
+
+	if after := updatedAt(t, s, "0001"); after != before {
+		t.Errorf("updated_at が動いた: %q -> %q", before, after)
+	}
+}
+
+// locationStatus は備品の所在を読む。
+func locationStatus(t *testing.T, s *Store, code string) string {
+	t.Helper()
+
+	var v string
+	if err := s.sqldb.QueryRow(`SELECT location_status FROM items WHERE code = ?`, code).Scan(&v); err != nil {
+		t.Fatalf("location_status(%s): %v", code, err)
+	}
+	return v
+}
+
+// updatedAt は備品の更新日時を読む。
+func updatedAt(t *testing.T, s *Store, code string) string {
+	t.Helper()
+
+	var v string
+	if err := s.sqldb.QueryRow(`SELECT updated_at FROM items WHERE code = ?`, code).Scan(&v); err != nil {
+		t.Fatalf("updated_at(%s): %v", code, err)
+	}
+	return v
 }
 
 func TestBorrow_取り消した貸出は二重貸出にならない(t *testing.T) {

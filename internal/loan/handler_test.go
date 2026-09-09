@@ -126,6 +126,22 @@ func TestHandleBorrow_本文なしで借用できる(t *testing.T) {
 	}
 }
 
+// 応答の item は更新後の姿。画面が再取得せずに反映できる。
+func TestHandleBorrow_所在不明から戻った備品を応答に載せる(t *testing.T) {
+	h, s, _ := newTestHandler(t)
+	insertItem(t, s, "0002", "行方不明の三脚", map[string]any{"location_status": "所在不明_未確認"})
+
+	w := post(t, h, "/api/items/0002/loans", `{}`)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201 (%s)", w.Code, w.Body.String())
+	}
+
+	_, it := decodeBorrow(t, w)
+	if string(it.LocationStatus) != "在庫" {
+		t.Errorf("location_status = %q, want 在庫", it.LocationStatus)
+	}
+}
+
 func TestHandleBorrow_自由利用品は400(t *testing.T) {
 	h, s, _ := newTestHandler(t)
 	insertItem(t, s, "0002", "はさみ", map[string]any{"is_free_use": 1})
