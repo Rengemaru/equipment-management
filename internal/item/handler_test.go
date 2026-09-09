@@ -41,11 +41,11 @@ func get(t *testing.T, h *Handler, path string) *httptest.ResponseRecorder {
 }
 
 // decodeItems は一覧の応答を読む。
-func decodeItems(t *testing.T, w *httptest.ResponseRecorder) []itemResponse {
+func decodeItems(t *testing.T, w *httptest.ResponseRecorder) []Response {
 	t.Helper()
 
 	var got struct {
-		Items []itemResponse `json:"items"`
+		Items []Response `json:"items"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("応答が JSON でない: %v (%s)", err, w.Body.String())
@@ -152,7 +152,7 @@ func TestHandleDetail_備品コードで引ける(t *testing.T) {
 	}
 
 	var got struct {
-		Item itemResponse `json:"item"`
+		Item Response `json:"item"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("応答が JSON でない: %v", err)
@@ -191,7 +191,7 @@ func TestHandleDetail_廃棄済みでも引ける(t *testing.T) {
 	}
 
 	var got struct {
-		Item itemResponse `json:"item"`
+		Item Response `json:"item"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("応答が JSON でない: %v", err)

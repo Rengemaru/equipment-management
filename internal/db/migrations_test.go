@@ -2,6 +2,8 @@ package db
 
 import (
 	"context"
+	"io/fs"
+	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -48,8 +50,6 @@ func TestMigrations_先のマイルストーンのテーブルを作らない(t 
 
 	// これらを足す時は、このテストから該当の名前を消すこと。
 	later := []string{
-		"loans",            // M2
-		"damage_reports",   // M2
 		"missing_reports",  // M3
 		"notification_log", // M3
 		"inventory_checks", // M3
@@ -57,7 +57,14 @@ func TestMigrations_先のマイルストーンのテーブルを作らない(t 
 	}
 	for _, name := range later {
 		if tableExists(t, sqldb, name) {
-			t.Errorf("M1 では作らないはずのテーブル %s が存在する", name)
+			t.Errorf("まだ作らないはずのテーブル %s が存在する", name)
+		}
+	}
+
+	// 逆に、済んだマイルストーンの分は在ること。
+	for _, name := range []string{"users", "items", "loans", "damage_reports"} {
+		if !tableExists(t, sqldb, name) {
+			t.Errorf("あるはずのテーブル %s が無い", name)
 		}
 	}
 }
@@ -74,8 +81,11 @@ func TestMigrations_再実行しても失敗しない(t *testing.T) {
 		t.Fatalf("2回目の Migrate: %v", err)
 	}
 
-	if n := countRows(t, sqldb, `SELECT COUNT(*) FROM schema_migrations`); n != 1 {
-		t.Errorf("適用記録が %d 件。1件を期待", n)
+	// 適用記録はマイグレーションのファイル数と一致する。
+	// 2回目の実行で増えていないことをここで見る。
+	want := countMigrationFiles(t)
+	if n := countRows(t, sqldb, `SELECT COUNT(*) FROM schema_migrations`); n != want {
+		t.Errorf("適用記録が %d 件。%d件を期待", n, want)
 	}
 }
 
@@ -119,4 +129,25 @@ func TestMigrations_制約が有効になっている(t *testing.T) {
 		t.Errorf("既定値が想定と違う: category=%q condition=%q location_status=%q owner=%q is_free_use=%d",
 			category, condition, locationStatus, owner, isFreeUse)
 	}
+}
+
+// countMigrationFiles は埋め込まれた連番SQLの数を数える。
+//
+// 件数を定数で持つと、マイグレーションを足すたびにこのテストが落ちる。
+// 落ちてほしいのは「2回目の適用で記録が増えた」時だけ。
+func countMigrationFiles(t *testing.T) int {
+	t.Helper()
+
+	entries, err := fs.ReadDir(Migrations(), ".")
+	if err != nil {
+		t.Fatalf("migrations の読み取り: %v", err)
+	}
+
+	n := 0
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".sql") {
+			n++
+		}
+	}
+	return n
 }

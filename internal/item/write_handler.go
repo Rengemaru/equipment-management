@@ -70,7 +70,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httpx.JSON(w, http.StatusCreated, map[string]any{"item": newItemResponse(it)})
+	httpx.JSON(w, http.StatusCreated, map[string]any{"item": NewResponse(it)})
 }
 
 func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
@@ -95,7 +95,7 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httpx.JSON(w, http.StatusOK, map[string]any{"item": newItemResponse(it)})
+	httpx.JSON(w, http.StatusOK, map[string]any{"item": NewResponse(it)})
 }
 
 func (h *Handler) handleDiscard(w http.ResponseWriter, r *http.Request) {
@@ -105,7 +105,7 @@ func (h *Handler) handleDiscard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httpx.JSON(w, http.StatusOK, map[string]any{"item": newItemResponse(it)})
+	httpx.JSON(w, http.StatusOK, map[string]any{"item": NewResponse(it)})
 }
 
 // writeItemError は Store のエラーを応答に変える。
