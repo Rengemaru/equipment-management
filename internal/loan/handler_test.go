@@ -3,6 +3,7 @@ package loan
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -18,19 +19,49 @@ import (
 // 認証そのものは auth パッケージのテストで確かめている。
 func passthrough(next http.Handler) http.Handler { return next }
 
+// sentMail は送信したメールを1通ぶん保持する。
+type sentMail struct {
+	to      []string
+	subject string
+	body    string
+}
+
+// testHandler はテスト用の Handler と、その周辺。
+type testHandler struct {
+	*Handler
+	store *Store
+
+	// actor は操作している利用者。テストの途中で差し替えられる。
+	actor Actor
+
+	// sent は送ったメール。1通も送っていなければ空。
+	sent []sentMail
+
+	// notifyErr を入れると送信が失敗する。
+	notifyErr error
+}
+
+const testHostURL = "https://example.test"
+
 // newTestHandler は Handler と Store、操作している利用者のIDを返す。
-func newTestHandler(t *testing.T) (*Handler, *Store, int64) {
+func newTestHandler(t *testing.T) (*testHandler, *Store, int64) {
 	t.Helper()
 
 	s, userID := fixture(t)
-	currentUser := func(context.Context) (int64, bool) { return userID, true }
+	th := &testHandler{store: s, actor: Actor{ID: userID}}
 
-	h := NewHandler(s, item.NewStore(s.sqldb), currentUser, passthrough)
-	return h, s, userID
+	notify := func(_ context.Context, to []string, subject, body string) error {
+		th.sent = append(th.sent, sentMail{to: to, subject: subject, body: body})
+		return th.notifyErr
+	}
+	currentUser := func(context.Context) (Actor, bool) { return th.actor, true }
+
+	th.Handler = NewHandler(s, item.NewStore(s.sqldb), notify, testHostURL, currentUser, passthrough)
+	return th, s, userID
 }
 
 // post は経路にリクエストを流す。body が空文字なら本文なしで送る。
-func post(t *testing.T, h *Handler, path, body string) *httptest.ResponseRecorder {
+func post(t *testing.T, h *testHandler, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 
 	mux := http.NewServeMux()
@@ -320,6 +351,163 @@ func TestHandleReturn_知らない備品は404(t *testing.T) {
 	w := post(t, h, "/api/items/9999/return", "")
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404 (%s)", w.Code, w.Body.String())
+	}
+}
+
+// 代理登録は本人に知らせる。「本人が記録しなくても穴が埋まる」ための仕組みで、
+// 誤登録に気付ける導線が無いと成立しない。
+func TestHandleBorrow_代理登録は本人にメールを送る(t *testing.T) {
+	h, s, _ := newTestHandler(t)
+	borrower := insertUser(t, s, "佐藤", true)
+	if _, err := s.sqldb.Exec(`UPDATE users SET email = 'sato@example.test' WHERE id = ?`, borrower); err != nil {
+		t.Fatalf("メールアドレスの設定: %v", err)
+	}
+
+	w := post(t, h, "/api/items/0001/loans", `{"user_id":`+strconv.FormatInt(borrower, 10)+`}`)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201 (%s)", w.Code, w.Body.String())
+	}
+
+	if len(h.sent) != 1 {
+		t.Fatalf("送ったメール = %d通, want 1", len(h.sent))
+	}
+	m := h.sent[0]
+	if len(m.to) != 1 || m.to[0] != "sato@example.test" {
+		t.Errorf("宛先 = %v, want [sato@example.test]", m.to)
+	}
+	if !strings.Contains(m.subject, "借用が登録されました") {
+		t.Errorf("件名 = %q", m.subject)
+	}
+	// 訂正できる導線を必ず載せる。載せないと、気付いても直せない。
+	if !strings.Contains(m.body, testHostURL+"/loans/mine") {
+		t.Errorf("本文に訂正先URLが無い: %q", m.body)
+	}
+	if !strings.Contains(m.body, "0001") || !strings.Contains(m.body, "三脚（大）") {
+		t.Errorf("本文に備品が無い: %q", m.body)
+	}
+	// 誰が登録したかを書く。書かないと本人が誰に確認すればよいか分からない。
+	if !strings.Contains(m.body, "山田") {
+		t.Errorf("本文に登録者が無い: %q", m.body)
+	}
+}
+
+func TestHandleBorrow_自分の借用では送らない(t *testing.T) {
+	h, s, userID := newTestHandler(t)
+	if _, err := s.sqldb.Exec(`UPDATE users SET email = 'yamada@example.test' WHERE id = ?`, userID); err != nil {
+		t.Fatalf("メールアドレスの設定: %v", err)
+	}
+
+	if w := post(t, h, "/api/items/0001/loans", `{}`); w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201 (%s)", w.Code, w.Body.String())
+	}
+	if len(h.sent) != 0 {
+		t.Errorf("送ったメール = %d通, want 0", len(h.sent))
+	}
+}
+
+// メールアドレスは任意項目。未設定の人が居ることは異常ではない。
+func TestHandleBorrow_宛先が無くても借用は成立する(t *testing.T) {
+	h, s, _ := newTestHandler(t)
+	borrower := insertUser(t, s, "佐藤", true)
+
+	w := post(t, h, "/api/items/0001/loans", `{"user_id":`+strconv.FormatInt(borrower, 10)+`}`)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201 (%s)", w.Code, w.Body.String())
+	}
+	if len(h.sent) != 0 {
+		t.Errorf("送ったメール = %d通, want 0", len(h.sent))
+	}
+}
+
+// 通知が送れなかったことを理由に記録を消すと、最も避けたい「記録が無い」状態に戻る。
+func TestHandleBorrow_通知に失敗しても借用は成立する(t *testing.T) {
+	h, s, _ := newTestHandler(t)
+	borrower := insertUser(t, s, "佐藤", true)
+	if _, err := s.sqldb.Exec(`UPDATE users SET email = 'sato@example.test' WHERE id = ?`, borrower); err != nil {
+		t.Fatalf("メールアドレスの設定: %v", err)
+	}
+	h.notifyErr = errors.New("SMTP に繋がらない")
+
+	w := post(t, h, "/api/items/0001/loans", `{"user_id":`+strconv.FormatInt(borrower, 10)+`}`)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201 (%s)", w.Code, w.Body.String())
+	}
+
+	// 記録は残っている。
+	if _, err := s.Return(context.Background(), "0001", borrower); err != nil {
+		t.Errorf("借用が記録されていない: %v", err)
+	}
+}
+
+func TestHandleCancel_本人が取り消せる(t *testing.T) {
+	h, s, registrar := newTestHandler(t)
+	borrower := insertUser(t, s, "佐藤", true)
+
+	l, err := s.Borrow(context.Background(), "0001", registrar, Request{UserID: borrower})
+	if err != nil {
+		t.Fatalf("Borrow: %v", err)
+	}
+
+	// 借用者本人として取り消す。
+	h.actor = Actor{ID: borrower}
+	w := post(t, h, "/api/loans/"+strconv.FormatInt(l.ID, 10)+"/cancel", `{"reason":"自分は借りていない"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (%s)", w.Code, w.Body.String())
+	}
+
+	// 取り消した備品は再度借りられる。
+	if _, err := s.Borrow(context.Background(), "0001", registrar, Request{}); err != nil {
+		t.Errorf("取り消し後の Borrow: %v", err)
+	}
+}
+
+func TestHandleCancel_無関係の利用者は403(t *testing.T) {
+	h, s, registrar := newTestHandler(t)
+	borrower := insertUser(t, s, "佐藤", true)
+	stranger := insertUser(t, s, "田中", true)
+
+	l, err := s.Borrow(context.Background(), "0001", registrar, Request{UserID: borrower})
+	if err != nil {
+		t.Fatalf("Borrow: %v", err)
+	}
+
+	h.actor = Actor{ID: stranger}
+	w := post(t, h, "/api/loans/"+strconv.FormatInt(l.ID, 10)+"/cancel", "")
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (%s)", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleCancel_返却済みは409(t *testing.T) {
+	h, s, userID := newTestHandler(t)
+	ctx := context.Background()
+
+	l, err := s.Borrow(ctx, "0001", userID, Request{})
+	if err != nil {
+		t.Fatalf("Borrow: %v", err)
+	}
+	if _, err := s.Return(ctx, "0001", userID); err != nil {
+		t.Fatalf("Return: %v", err)
+	}
+
+	w := post(t, h, "/api/loans/"+strconv.FormatInt(l.ID, 10)+"/cancel", "")
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (%s)", w.Code, w.Body.String())
+	}
+	if code := decodeError(t, w); code != "already_returned" {
+		t.Errorf("code = %q, want already_returned", code)
+	}
+}
+
+func TestHandleCancel_知らない貸出は404(t *testing.T) {
+	h, _, _ := newTestHandler(t)
+
+	if w := post(t, h, "/api/loans/999/cancel", ""); w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 (%s)", w.Code, w.Body.String())
+	}
+	// 数値でないIDも 404。500 にしない。
+	if w := post(t, h, "/api/loans/abc/cancel", ""); w.Code != http.StatusNotFound {
+		t.Fatalf("数値でないID: status = %d, want 404 (%s)", w.Code, w.Body.String())
 	}
 }
 
