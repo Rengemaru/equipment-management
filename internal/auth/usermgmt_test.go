@@ -445,3 +445,64 @@ func TestListActive_無効な利用者を返さない(t *testing.T) {
 		t.Fatal("有効な利用者が1人も返っていない")
 	}
 }
+
+// 代理登録の選択肢は member も引ける。引けないと選択欄が作れない。
+func TestHandleListMembers_memberでも引ける(t *testing.T) {
+	h, store := newTestHandler(t)
+	c := loginAs(t, h, store, "taro", RoleMember)
+
+	w := callAPI(t, h, c, http.MethodGet, "/api/members", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	var got struct {
+		Members []memberResponse `json:"members"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答が JSON でない: %v", err)
+	}
+	if len(got.Members) == 0 {
+		t.Fatal("1人も返っていない")
+	}
+}
+
+// __IDと名前しか返さない。__ メールアドレスや must_change_password を
+// 運営以外に見せない。項目を足した時にここで気付けるようにする。
+func TestHandleListMembers_個人情報を含まない(t *testing.T) {
+	h, store := newTestHandler(t)
+	c := loginAs(t, h, store, "taro", RoleMember)
+
+	w := callAPI(t, h, c, http.MethodGet, "/api/members", "")
+
+	var raw struct {
+		Members []map[string]any `json:"members"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("応答が JSON でない: %v", err)
+	}
+	if len(raw.Members) == 0 {
+		t.Fatal("1人も返っていない")
+	}
+
+	for _, m := range raw.Members {
+		if len(m) != 2 {
+			t.Errorf("項目が %d 個ある: %v（id と name だけにする）", len(m), m)
+		}
+		for _, forbidden := range []string{"email", "login_id", "role", "must_change_password", "created_at"} {
+			if _, ok := m[forbidden]; ok {
+				t.Errorf("%s が含まれている: %v", forbidden, m)
+			}
+		}
+	}
+}
+
+// 未ログインでは引けない。誰が居るかは中の人にだけ見せる。
+func TestHandleListMembers_未ログインは401(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	w := callAPI(t, h, nil, http.MethodGet, "/api/members", "")
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d。401 を期待", w.Code)
+	}
+}

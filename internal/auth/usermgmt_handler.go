@@ -57,8 +57,22 @@ type userWithPasswordResponse struct {
 	InitialPassword string `json:"initial_password"`
 }
 
-// registerUserRoutes は admin 専用の経路を登録する。
+// memberResponse は member にも見せる利用者。**IDと名前だけ。**
+//
+// adminUserResponse を role で削って使い回さない。1つのハンドラが権限で
+// 違う形を返すと、項目を足した時に member 向けへ漏れる。
+type memberResponse struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+// registerUserRoutes は利用者まわりの経路を登録する。
 func (h *Handler) registerUserRoutes(mux *http.ServeMux) {
+	// 代理登録の選択肢。**member も引ける。**
+	// 経路を /api/users と分けているのは、同じ経路が権限で違う形を
+	// 返す作りにしないため（上の memberResponse の注記）。
+	mux.Handle("GET /api/members", h.RequireLogin(http.HandlerFunc(h.handleListMembers)))
+
 	mux.Handle("GET /api/users", h.RequireAdmin(http.HandlerFunc(h.handleListUsers)))
 	mux.Handle("POST /api/users", h.RequireAdmin(http.HandlerFunc(h.handleCreateUser)))
 
@@ -70,6 +84,27 @@ func (h *Handler) registerUserRoutes(mux *http.ServeMux) {
 		h.RequireAdmin(http.HandlerFunc(h.handleSetActive(false))))
 	mux.Handle("POST /api/users/{id}/reset-password",
 		h.RequireAdmin(http.HandlerFunc(h.handleResetPassword)))
+}
+
+// handleListMembers は有効な利用者をIDと名前だけで返す。
+//
+// 数十名規模なので絞り込みは要らない。全件返して画面側で選ばせる。
+func (h *Handler) handleListMembers(w http.ResponseWriter, r *http.Request) {
+	users, err := h.store.ListActive(r.Context())
+	if err != nil {
+		log.Printf("members: %v", err)
+		httpx.WriteError(w, http.StatusInternalServerError, "サーバ側で問題が起きました")
+		return
+	}
+
+	// 0件でも null ではなく [] を返す。フロント側で
+	// 「null かもしれない」の分岐を書かせない。
+	list := make([]memberResponse, 0, len(users))
+	for _, u := range users {
+		list = append(list, memberResponse{ID: u.ID, Name: u.Name})
+	}
+
+	httpx.JSON(w, http.StatusOK, map[string]any{"members": list})
 }
 
 func (h *Handler) handleListUsers(w http.ResponseWriter, r *http.Request) {
