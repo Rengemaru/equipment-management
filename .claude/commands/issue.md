@@ -35,10 +35,10 @@ Issue に書かれていない機能を足さない。**先のマイルストー
 git fetch origin
 git switch m2
 git pull --ff-only
-git switch -c m2/$1-<短い英語のスラッグ>
+git switch -c m2-$1-<短い英語のスラッグ>
 ```
 
-例: `m2/2-loan-api`, `m2/5-proxy-loan`
+例: `m2-2-loan-api`, `m2-5-proxy-loan`
 
 **`main` に直接コミットしない。** マイルストーンブランチにも直接コミットしない。
 
@@ -102,7 +102,7 @@ git commit -F <メッセージファイルのパス>
 ## 6. push して PR を作る
 
 ```
-git push -u origin m2/$1-<スラッグ>
+git push -u origin m2-$1-<スラッグ>
 gh pr create --base m2 --title "<コミットの件名と同じ>" --body-file <本文ファイル>
 ```
 
