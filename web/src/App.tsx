@@ -9,6 +9,7 @@ import AdminItems from './screens/AdminItems'
 import AdminItemsImport from './screens/AdminItemsImport'
 import AdminLabels from './screens/AdminLabels'
 import AdminUsers from './screens/AdminUsers'
+import ItemBorrow from './screens/ItemBorrow'
 import ItemDetail from './screens/ItemDetail'
 import Items from './screens/Items'
 import Login from './screens/Login'
@@ -58,6 +59,18 @@ export default function App() {
         element={
           <RequireAuth>
             <ItemDetail />
+          </RequireAuth>
+        }
+      />
+
+      {/* 借用の確認画面。詳細の「借りる」から来る。
+          __直接開いても成立させる。__ 借りようとしてブラウザを再読み込みした
+          人が、そこで止まらないようにする。 */}
+      <Route
+        path="/i/:code/borrow"
+        element={
+          <RequireAuth>
+            <ItemBorrow />
           </RequireAuth>
         }
       />
