@@ -128,6 +128,7 @@ function Sidebar({ isAdmin, name }: { isAdmin: boolean; name: string }) {
             <SidebarHeading>運営</SidebarHeading>
             <SidebarLink to="/admin/items">備品マスタ管理</SidebarLink>
             <SidebarLink to="/admin/users">ユーザー管理</SidebarLink>
+            <SidebarLink to="/admin/damages">破損報告</SidebarLink>
           </>
         )}
 
