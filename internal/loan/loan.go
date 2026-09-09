@@ -22,6 +22,11 @@ import (
 // sqliteTimeLayout は datetime('now') が返す形式。保存はUTC。
 const sqliteTimeLayout = "2006-01-02 15:04:05"
 
+// defaultReturnedLimit は /loans/mine が返す履歴の既定件数。
+//
+// 数百件を一度に返しても画面で読めない。もっと遡りたい場合は limit で増やす。
+const defaultReturnedLimit = 50
+
 // defaultLoanDays は返却予定日の既定値（借用日+14日）。
 //
 // 日付を必須入力にしない。ここが摩擦の最大の発生源になる
@@ -396,6 +401,129 @@ WHERE id = ?`
 	}
 
 	return l, nil
+}
+
+// Filter は貸出中一覧の絞り込み。空の項目は条件にしない。
+type Filter struct {
+	// Query は備品コード・品名・借用者名の部分一致。
+	Query string
+
+	// UserID は借用者。0 は指定なし。
+	UserID int64
+
+	// OverdueOnly は返却予定日を過ぎたものだけに絞る。
+	OverdueOnly bool
+}
+
+// ListActive は貸出中の一覧を返す。**全メンバーが見られる。**
+//
+// 誰が何を持っているかが全員に見える状態を作ることが目的で、
+// 可視性は罰則より強く働く（CLAUDE.md）。
+//
+// 取り消し済みは出さない。履歴としては残るが、一覧に出すと誤登録が
+// 「起きた事実」として全員に見え続ける。
+func (s *Store) ListActive(ctx context.Context, f Filter) ([]*Loan, error) {
+	where := []string{"l.returned_at IS NULL", "l.cancelled_at IS NULL"}
+	var args []any
+
+	if q := strings.TrimSpace(f.Query); q != "" {
+		pattern := "%" + escapeLike(q) + `%`
+		where = append(where, `(i.code LIKE ? ESCAPE '\' OR i.name LIKE ? ESCAPE '\' OR bu.name LIKE ? ESCAPE '\')`)
+		args = append(args, pattern, pattern, pattern)
+	}
+	if f.UserID > 0 {
+		where = append(where, "l.user_id = ?")
+		args = append(args, f.UserID)
+	}
+	if f.OverdueOnly {
+		// 日付はJSTで正規化して入っている。文字列の比較で足りる。
+		where = append(where, "l.due_date < ?")
+		args = append(args, jst.FormatDate(now()))
+	}
+
+	// 返却予定日が近い順。期限を過ぎたものが上に来る。
+	query := selectColumns + "\nWHERE " + strings.Join(where, "\n  AND ") +
+		"\nORDER BY l.due_date, l.id"
+
+	return s.query(ctx, query, args...)
+}
+
+// ListByUser は利用者の貸出を返す。returnedLimit は返却済みの件数の上限。
+//
+// 貸出中と履歴を1回で返す。画面が2回リクエストする形にすると、
+// 片方だけ更新された表示が出る。
+func (s *Store) ListByUser(ctx context.Context, userID int64, returnedLimit int) (active, returned []*Loan, err error) {
+	active, err = s.query(ctx, selectColumns+`
+WHERE l.user_id = ? AND l.returned_at IS NULL AND l.cancelled_at IS NULL
+ORDER BY l.due_date, l.id`, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if returnedLimit <= 0 {
+		returnedLimit = defaultReturnedLimit
+	}
+
+	returned, err = s.query(ctx, selectColumns+`
+WHERE l.user_id = ? AND l.returned_at IS NOT NULL AND l.cancelled_at IS NULL
+ORDER BY l.returned_at DESC, l.id DESC
+LIMIT ?`, userID, returnedLimit)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return active, returned, nil
+}
+
+// ActiveByItem は備品の貸出中の情報を返す。貸出中でなければ ErrNotFound。
+//
+// 備品詳細（item パッケージ）から使う。item が loan を import すると、
+// loan -> item の依存と合わせて循環するため、呼び出し側は main で繋ぐ。
+func (s *Store) ActiveByItem(ctx context.Context, itemID int64) (*Loan, error) {
+	list, err := s.query(ctx, selectColumns+`
+WHERE l.item_id = ? AND l.returned_at IS NULL AND l.cancelled_at IS NULL`, itemID)
+	if err != nil {
+		return nil, err
+	}
+	if len(list) == 0 {
+		return nil, ErrNotFound
+	}
+	return list[0], nil
+}
+
+// query は複数件を読む。
+func (s *Store) query(ctx context.Context, query string, args ...any) ([]*Loan, error) {
+	rows, err := s.sqldb.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("貸出一覧の取得: %w", err)
+	}
+	defer rows.Close()
+
+	var list []*Loan
+	for rows.Next() {
+		l, err := scanLoan(rows)
+		if err != nil {
+			return nil, fmt.Errorf("貸出一覧の読み取り: %w", err)
+		}
+		list = append(list, l)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("貸出一覧の読み取り: %w", err)
+	}
+
+	return list, nil
+}
+
+// escapeLike は LIKE の特殊文字を打ち消す。
+//
+// 打ち消さないと、品名に % を含む検索が全件一致になる。
+// バックスラッシュ自体も対象にする。先に処理しないと、
+// 後から足したエスケープ文字を二重に打ち消すことになる。
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, "%", `\%`)
+	s = strings.ReplaceAll(s, "_", `\_`)
+	return s
 }
 
 // resolveDueDate は返却予定日を決める。空なら借用日+14日。
