@@ -30,6 +30,9 @@ import (
 	"github.com/Rengemaru/equipment-management/internal/db"
 	"github.com/Rengemaru/equipment-management/internal/httpx"
 	"github.com/Rengemaru/equipment-management/internal/item"
+	"github.com/Rengemaru/equipment-management/internal/loan"
+	"github.com/Rengemaru/equipment-management/internal/notify"
+	"github.com/Rengemaru/equipment-management/internal/report"
 	"github.com/Rengemaru/equipment-management/web"
 )
 
@@ -149,7 +152,47 @@ func runServer(ctx context.Context, cfg *config.Config, sqldb *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("写真の保存先: %w", err)
 	}
-	item.NewHandler(item.NewStore(sqldb), photos, cfg.HostURL, authHandler.RequireLogin, authHandler.RequireAdmin).Register(mux)
+	items := item.NewStore(sqldb)
+	item.NewHandler(items, photos, cfg.HostURL, authHandler.RequireLogin, authHandler.RequireAdmin).Register(mux)
+
+	// メールは「送れる人にだけ送る」補助手段。未設定でも起動する。
+	// 起動時に一度だけ状態をログに出す。送れているつもりで送れていない状態が
+	// 一番気付きにくい。
+	mailer := notify.New(notify.Options{
+		Host:     cfg.SMTP.Host,
+		Port:     cfg.SMTP.Port,
+		User:     cfg.SMTP.User,
+		Password: cfg.SMTP.Password,
+		From:     cfg.SMTP.From,
+	})
+	if mailer.Enabled() {
+		log.Printf("mail: %s 経由で送信する", cfg.SMTP.Host)
+	} else {
+		log.Print("mail: SMTP_HOST が未設定のため送信しない")
+	}
+
+	// 貸出。loan は auth を参照しない（テストでログイン済みの利用者を
+	// 作れなくなるため）。context からの取り出し方だけをここで渡す。
+	currentUser := func(ctx context.Context) (loan.Actor, bool) {
+		u, ok := auth.UserFrom(ctx)
+		if !ok {
+			return loan.Actor{}, false
+		}
+		return loan.Actor{ID: u.ID, IsAdmin: u.Role == auth.RoleAdmin}, true
+	}
+	loan.NewHandler(loan.NewStore(sqldb), items, mailer.Send, cfg.HostURL, currentUser, authHandler.RequireLogin).Register(mux)
+
+	// 破損報告。報告は全員、追認は admin。
+	// 報告そのものに役割は要らないため、IDだけを渡す。
+	currentUserID := func(ctx context.Context) (int64, bool) {
+		u, ok := auth.UserFrom(ctx)
+		if !ok {
+			return 0, false
+		}
+		return u.ID, true
+	}
+	report.NewHandler(report.NewStore(sqldb), items, currentUserID,
+		authHandler.RequireLogin, authHandler.RequireAdmin).Register(mux)
 
 	// 登録の無い /api/ は JSON で404を返す。これが無いと下の "/" に落ち、
 	// 綴りを間違えたAPIが index.html を返す。フロントは200のHTMLをJSONとして

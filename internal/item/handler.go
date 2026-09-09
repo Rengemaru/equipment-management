@@ -64,10 +64,13 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	h.registerLabelRoutes(mux)
 }
 
-// itemResponse は備品を返す形。
+// Response は API が返す備品の形。
 //
 // Item をそのまま返さない。列を足した時に、意図しない値がAPIに現れる。
-type itemResponse struct {
+//
+// 公開しているのは、備品を含む応答を組み立てる他のパッケージ（貸出など）が
+// 同じ形を作り直さずに済むようにするため。備品の見え方を1箇所に保つ。
+type Response struct {
 	ID             int64          `json:"id"`
 	Code           string         `json:"code"`
 	Name           string         `json:"name"`
@@ -87,8 +90,9 @@ type itemResponse struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
-func newItemResponse(it *Item) itemResponse {
-	return itemResponse{
+// NewResponse は Item を API の形に直す。
+func NewResponse(it *Item) Response {
+	return Response{
 		ID:             it.ID,
 		Code:           it.Code,
 		Name:           it.Name,
@@ -137,9 +141,9 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 
 	// 0件でも null ではなく [] を返す。フロント側で
 	// 「null かもしれない」の分岐を書かせない。
-	list := make([]itemResponse, 0, len(items))
+	list := make([]Response, 0, len(items))
 	for _, it := range items {
-		list = append(list, newItemResponse(it))
+		list = append(list, NewResponse(it))
 	}
 
 	httpx.JSON(w, http.StatusOK, map[string]any{"items": list})
@@ -158,7 +162,7 @@ func (h *Handler) handleDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httpx.JSON(w, http.StatusOK, map[string]any{"item": newItemResponse(it)})
+	httpx.JSON(w, http.StatusOK, map[string]any{"item": NewResponse(it)})
 }
 
 // handleFilters は絞り込みの選択肢を返す。

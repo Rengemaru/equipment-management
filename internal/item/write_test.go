@@ -32,11 +32,11 @@ func send(t *testing.T, h *Handler, method, path, body string) *httptest.Respons
 }
 
 // decodeItem は1件の応答を読む。
-func decodeItem(t *testing.T, w *httptest.ResponseRecorder) itemResponse {
+func decodeItem(t *testing.T, w *httptest.ResponseRecorder) Response {
 	t.Helper()
 
 	var got struct {
-		Item itemResponse `json:"item"`
+		Item Response `json:"item"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("応答が JSON でない: %v (%s)", err, w.Body.String())
