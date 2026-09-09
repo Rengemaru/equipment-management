@@ -12,7 +12,9 @@ import AdminUsers from './screens/AdminUsers'
 import ItemBorrow from './screens/ItemBorrow'
 import ItemDetail from './screens/ItemDetail'
 import Items from './screens/Items'
+import Loans from './screens/Loans'
 import Login from './screens/Login'
+import MyLoans from './screens/MyLoans'
 import PasswordChange from './screens/PasswordChange'
 import { Empty } from './ui/Feedback'
 import { ButtonRow, LinkRow, List } from './ui/List'
@@ -59,6 +61,27 @@ export default function App() {
         element={
           <RequireAuth>
             <ItemDetail />
+          </RequireAuth>
+        }
+      />
+
+      {/* 貸出中一覧は全メンバーが見られる。誰が何を持っているかが
+          全員に見える状態を作ることが、罰則より強く働く（CLAUDE.md）。 */}
+      <Route
+        path="/loans"
+        element={
+          <RequireAuth>
+            <Loans />
+          </RequireAuth>
+        }
+      />
+
+      {/* 代理登録の通知メールが指す先。身に覚えのない借用をここで取り消す。 */}
+      <Route
+        path="/loans/mine"
+        element={
+          <RequireAuth>
+            <MyLoans />
           </RequireAuth>
         }
       />
@@ -155,8 +178,25 @@ function Home() {
       */}
       <div className="lg:hidden">
         <List>
+          {/* 自分の貸出を先頭に置く。__返すのは借りた人だけができる操作__で、
+              この画面に来る動機として一番多い。 */}
+          <LinkRow to="/loans/mine">
+            <span className="text-[17px]">自分が借りているもの</span>
+          </LinkRow>
+          <LinkRow to="/loans">
+            <span className="text-[17px]">貸出中の一覧</span>
+          </LinkRow>
           <LinkRow to="/items">
             <span className="text-[17px]">備品一覧</span>
+          </LinkRow>
+        </List>
+
+        {/* 事後登録の入口。__「もう持ち出しちゃったから今さら」を潰す__のが目的で、
+            深い階層に埋めると意味が無くなる（m2-spec §4）。備品を選べば、
+            借用画面で借用日時を過去にできる。 */}
+        <List footer="持ち出した後でも、備品を選べば借用日時を遡って記録できます。">
+          <LinkRow to="/items">
+            <span className="text-[17px]">持ち出したものを後から記録する</span>
           </LinkRow>
         </List>
 
