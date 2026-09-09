@@ -153,7 +153,31 @@ func runServer(ctx context.Context, cfg *config.Config, sqldb *sql.DB) error {
 		return fmt.Errorf("写真の保存先: %w", err)
 	}
 	items := item.NewStore(sqldb)
-	item.NewHandler(items, photos, cfg.HostURL, authHandler.RequireLogin, authHandler.RequireAdmin).Register(mux)
+	loans := loan.NewStore(sqldb)
+
+	// 備品詳細に貸出中の情報を載せる。item と loan は互いを参照しないため、
+	// ここで繋ぐ（item -> loan にすると、応答に載せる備品の形で loan -> item と循環する）。
+	activeLoan := func(ctx context.Context, itemID int64) (*item.LoanSummary, error) {
+		l, err := loans.ActiveByItem(ctx, itemID)
+		if errors.Is(err, loan.ErrNotFound) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		return &item.LoanSummary{
+			ID:          l.ID,
+			UserID:      l.User.ID,
+			UserName:    l.User.Name,
+			BorrowedAt:  l.BorrowedAt,
+			DueDate:     l.DueDate,
+			OverdueDays: l.OverdueDays(time.Now()),
+		}, nil
+	}
+
+	item.NewHandler(items, photos, cfg.HostURL, authHandler.RequireLogin, authHandler.RequireAdmin).
+		WithActiveLoan(activeLoan).
+		Register(mux)
 
 	// メールは「送れる人にだけ送る」補助手段。未設定でも起動する。
 	// 起動時に一度だけ状態をログに出す。送れているつもりで送れていない状態が
@@ -180,7 +204,7 @@ func runServer(ctx context.Context, cfg *config.Config, sqldb *sql.DB) error {
 		}
 		return loan.Actor{ID: u.ID, IsAdmin: u.Role == auth.RoleAdmin}, true
 	}
-	loan.NewHandler(loan.NewStore(sqldb), items, mailer.Send, cfg.HostURL, currentUser, authHandler.RequireLogin).Register(mux)
+	loan.NewHandler(loans, items, mailer.Send, cfg.HostURL, currentUser, authHandler.RequireLogin).Register(mux)
 
 	// 破損報告。報告は全員、追認は admin。
 	// 報告そのものに役割は要らないため、IDだけを渡す。

@@ -1,10 +1,15 @@
 package item
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/Rengemaru/equipment-management/internal/jst"
 )
 
 // passthrough は認証を通す代わりのミドルウェア。
@@ -236,5 +241,80 @@ func TestRegister_filtersが詳細に吸われない(t *testing.T) {
 	w := get(t, h, "/api/items/filters")
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d。200 を期待（詳細の経路に吸われている）", w.Code)
+	}
+}
+
+// 備品詳細に貸出中の情報を載せる。貸出そのものは loan パッケージが持ち、
+// 繋ぐのは main の仕事なので、ここでは注入した関数が使われることだけを確かめる。
+func TestHandleDetail_貸出中の情報を載せる(t *testing.T) {
+	h, s := newTestHandler(t)
+	insert(t, s, "0001", "三脚", nil)
+	insert(t, s, "0002", "ドライバー", nil)
+
+	borrowed := int64(0)
+	h = h.WithActiveLoan(func(_ context.Context, itemID int64) (*LoanSummary, error) {
+		if itemID != borrowed {
+			return nil, nil
+		}
+		return &LoanSummary{
+			ID:          7,
+			UserID:      12,
+			UserName:    "山田",
+			BorrowedAt:  time.Date(2026, 9, 10, 19, 30, 0, 0, jst.Zone),
+			DueDate:     "2026-09-24",
+			OverdueDays: 3,
+		}, nil
+	})
+
+	// 在庫中は null。
+	var idle struct {
+		Item struct {
+			Loan *json.RawMessage `json:"loan"`
+		} `json:"item"`
+	}
+	w := get(t, h, "/api/items/0002")
+	if err := json.Unmarshal(w.Body.Bytes(), &idle); err != nil {
+		t.Fatalf("応答が JSON でない: %v", err)
+	}
+	if idle.Item.Loan != nil && string(*idle.Item.Loan) != "null" {
+		t.Errorf("在庫中なのに loan が入っている: %s", *idle.Item.Loan)
+	}
+
+	// 貸出中は借用者と返却予定日が出る。
+	it, err := s.ByCode(context.Background(), "0001")
+	if err != nil {
+		t.Fatalf("ByCode: %v", err)
+	}
+	borrowed = it.ID
+
+	var got struct {
+		Item struct {
+			Code string        `json:"code"`
+			Loan *loanResponse `json:"loan"`
+		} `json:"item"`
+	}
+	w = get(t, h, "/api/items/0001")
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答が JSON でない: %v", err)
+	}
+	if got.Item.Loan == nil {
+		t.Fatalf("loan が入っていない: %s", w.Body.String())
+	}
+	if got.Item.Loan.User.Name != "山田" {
+		t.Errorf("借用者 = %q, want 山田", got.Item.Loan.User.Name)
+	}
+	if got.Item.Loan.DueDate != "2026-09-24" {
+		t.Errorf("返却予定日 = %q", got.Item.Loan.DueDate)
+	}
+	if got.Item.Loan.OverdueDays != 3 {
+		t.Errorf("超過日数 = %d, want 3", got.Item.Loan.OverdueDays)
+	}
+	// new Date() に渡せる形で返す。
+	if !strings.HasSuffix(got.Item.Loan.BorrowedAt, "+09:00") {
+		t.Errorf("借用日時 = %q, want RFC3339（JST）", got.Item.Loan.BorrowedAt)
+	}
+	// 一覧の項目もそのまま入っている。
+	if got.Item.Code != "0001" {
+		t.Errorf("備品コード = %q", got.Item.Code)
 	}
 }

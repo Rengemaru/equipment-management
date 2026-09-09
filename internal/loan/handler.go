@@ -76,6 +76,84 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("POST /api/items/{code}/loans", h.requireLogin(http.HandlerFunc(h.handleBorrow)))
 	mux.Handle("POST /api/items/{code}/return", h.requireLogin(http.HandlerFunc(h.handleReturn)))
 	mux.Handle("POST /api/loans/{id}/cancel", h.requireLogin(http.HandlerFunc(h.handleCancel)))
+
+	// 貸出中一覧は全メンバーが見られる。誰が何を持っているかが
+	// 全員に見える状態を作ることが、罰則より強く働く。
+	mux.Handle("GET /api/loans", h.requireLogin(http.HandlerFunc(h.handleList)))
+	mux.Handle("GET /api/loans/mine", h.requireLogin(http.HandlerFunc(h.handleMine)))
+}
+
+// handleList は貸出中の一覧を返す。
+func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+
+	f := Filter{
+		Query: q.Get("q"),
+		// overdue は値を見ない。付いていれば絞る。
+		OverdueOnly: q.Has("overdue") && q.Get("overdue") != "0",
+	}
+	if v := q.Get("user_id"); v != "" {
+		id, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "user_id の指定が不正")
+			return
+		}
+		f.UserID = id
+	}
+
+	list, err := h.store.ListActive(r.Context(), f)
+	if err != nil {
+		log.Printf("貸出中一覧: %v", err)
+		httpx.WriteError(w, http.StatusInternalServerError, "サーバ側で問題が起きました")
+		return
+	}
+
+	httpx.JSON(w, http.StatusOK, map[string]any{"loans": h.responses(list)})
+}
+
+// handleMine は自分の貸出中と履歴を1回で返す。
+//
+// 2回に分けると、片方だけ更新された表示が出る。
+func (h *Handler) handleMine(w http.ResponseWriter, r *http.Request) {
+	actor, ok := h.currentUser(r.Context())
+	if !ok {
+		log.Print("handleMine: 利用者を取り出せない")
+		httpx.WriteError(w, http.StatusInternalServerError, "サーバ側で問題が起きました")
+		return
+	}
+
+	limit := 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			httpx.WriteError(w, http.StatusBadRequest, "limit の指定が不正")
+			return
+		}
+		limit = n
+	}
+
+	active, returned, err := h.store.ListByUser(r.Context(), actor.ID, limit)
+	if err != nil {
+		log.Printf("自分の貸出: %v", err)
+		httpx.WriteError(w, http.StatusInternalServerError, "サーバ側で問題が起きました")
+		return
+	}
+
+	httpx.JSON(w, http.StatusOK, map[string]any{
+		"active":   h.responses(active),
+		"returned": h.responses(returned),
+	})
+}
+
+// responses は一覧を応答の形に直す。
+func (h *Handler) responses(list []*Loan) []loanResponse {
+	at := now()
+
+	out := make([]loanResponse, 0, len(list))
+	for _, l := range list {
+		out = append(out, newLoanResponse(l, at))
+	}
+	return out
 }
 
 // borrowRequest は借用の入力。**全項目が省略できる。**
