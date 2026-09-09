@@ -63,6 +63,12 @@ var (
 	// ErrInvalidDueDate は返却予定日が読めない、または借用日より前。
 	ErrInvalidDueDate = errors.New("返却予定日の指定が不正")
 
+	// ErrNotBorrowed は貸出中でない備品を返そうとしたこと。
+	//
+	// 二重タップと、他の人が先に返した場合の両方でここに来る。
+	// 黙って成功にしない。「返した気になっているが記録が無い」状態を作らない。
+	ErrNotBorrowed = errors.New("この備品は貸出中ではない")
+
 	// ErrFutureBorrowedAt は借用日時が未来。
 	//
 	// 事後登録（過去に持ち出した分の記録）は許すが、未来は許さない。
@@ -239,6 +245,69 @@ VALUES (?, ?, ?, ?, ?, ?)`
 
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("借用の登録: %w", err)
+	}
+
+	return l, nil
+}
+
+// Return は返却を記録する。returnedBy は操作した人。
+//
+// **借用者本人でなくてもよい。** 棚に戻っているのを見つけた人が処理できないと、
+// 記録が永久にズレたままになる。誰が戻したかは returned_by に残る
+// （docs/m2-implementation-spec.md §6）。
+//
+// 返却時に状態を訊かない。破損があれば破損報告を押してもらう。
+// 借用の記録漏れは致命的だが、返却の記録漏れは本人に聞けば自己修復する。
+// UIもAPIも返却側は薄くてよい。
+func (s *Store) Return(ctx context.Context, code string, returnedBy int64) (*Loan, error) {
+	tx, err := s.sqldb.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("返却の登録: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// 備品が無いのか、貸出中でないのかを区別する。
+	// どちらも 404 にすると、コードの打ち間違いと二重タップが同じ表示になる。
+	var itemID int64
+	err = tx.QueryRowContext(ctx, `SELECT id FROM items WHERE code = ?`, strings.TrimSpace(code)).Scan(&itemID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrItemNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("備品の取得: %w", err)
+	}
+
+	// 廃棄済みでも返せる。持ち出したまま廃棄扱いになった備品を戻せないと、
+	// 貸出中の行が永久に残る。
+	const find = `
+SELECT id FROM loans
+WHERE item_id = ? AND returned_at IS NULL AND cancelled_at IS NULL`
+
+	var loanID int64
+	err = tx.QueryRowContext(ctx, find, itemID).Scan(&loanID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotBorrowed
+	}
+	if err != nil {
+		return nil, fmt.Errorf("貸出の取得: %w", err)
+	}
+
+	const q = `
+UPDATE loans
+SET returned_at = datetime('now'), returned_by = ?, updated_at = datetime('now')
+WHERE id = ?`
+
+	if _, err := tx.ExecContext(ctx, q, returnedBy, loanID); err != nil {
+		return nil, fmt.Errorf("返却の登録: %w", err)
+	}
+
+	l, err := queryLoan(ctx, tx, loanID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("返却の登録: %w", err)
 	}
 
 	return l, nil
