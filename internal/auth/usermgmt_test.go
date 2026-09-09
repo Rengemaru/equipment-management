@@ -406,3 +406,42 @@ func TestSetActive_最後のadminはStoreでも止まる(t *testing.T) {
 		t.Errorf("err = %v。ErrLastAdmin を期待", err)
 	}
 }
+
+// 代理登録の選択肢に使う。卒業者を出すと、選んでも借用APIが弾くだけになる。
+func TestListActive_無効な利用者を返さない(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	admin := validUser()
+	admin.LoginID = "boss"
+	admin.Role = RoleAdmin
+	if _, err := store.Create(ctx, admin); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	in := validUser()
+	in.LoginID = "sotsugyo"
+	in.Name = "卒業生"
+	in.Email = "sotsugyo@example.test"
+	graduated, err := store.Create(ctx, in)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := store.SetActive(ctx, graduated.ID, false); err != nil {
+		t.Fatalf("SetActive: %v", err)
+	}
+
+	users, err := store.ListActive(ctx)
+	if err != nil {
+		t.Fatalf("ListActive: %v", err)
+	}
+
+	for _, u := range users {
+		if u.ID == graduated.ID {
+			t.Fatalf("卒業生が一覧に出ている: %+v", u)
+		}
+	}
+	if len(users) == 0 {
+		t.Fatal("有効な利用者が1人も返っていない")
+	}
+}
