@@ -10,9 +10,10 @@ spec:
   ingressClassName: traefik
   rules:
     # Both operators reach the same LAN through their own Tailscale subnet
-    # router. A hostless rule allows either tailnet to use the Traefik LAN IP
-    # without depending on a DNS name owned by one tailnet.
-    - http:
+    # router. Keep this name independent from either tailnet, and do not use a
+    # hostless / rule because it would shadow other Traefik applications.
+    - host: equipment-management.home.arpa
+      http:
         paths:
           - path: /
             pathType: Prefix

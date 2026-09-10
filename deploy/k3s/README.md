@@ -22,8 +22,9 @@ kubectl -n equipment-management create secret generic equipment-management-runti
 ```
 
 `SESSION_SECRET` は32文字以上のランダム値にします。subnet router経由で
-TraefikのHTTP入口を使う検証環境では `COOKIE_SECURE=false`、将来HTTPSへ
-切り替えるときは `true` にします。
+TraefikのHTTP入口を使う検証環境では、`HOST_URL=http://equipment-management.home.arpa`
+と `COOKIE_SECURE=false` を設定します。将来HTTPSへ切り替えるときは公開名を
+Cloudflare側の名前へ変更し、`COOKIE_SECURE=true` にします。
 
 ## 適用前の確認
 
@@ -33,8 +34,11 @@ TraefikのHTTP入口を使う検証環境では `COOKIE_SECURE=false`、将来HT
    `nfs-rwx-retain` で作られることを確認する。
 3. 両方のtailnetから、それぞれのsubnet routerを経由してTraefikのLAN IPへ
    到達できることを確認する。
-4. hostを限定しないIngressがLAN内へ公開されることを理解し、テスト期間中の
-   利用者認証とネットワーク境界を確認する。
+4. 両方の利用者環境で `equipment-management.home.arpa` がTraefikのLAN IPへ
+   解決されることを確認する。LAN DNSへ登録できない間は、各端末のhosts設定を
+   一時的に使う。
+5. IP直打ちではなく専用Host名で既存のTraefikサービスとルートを分離し、
+   テスト期間中の利用者認証とネットワーク境界を確認する。
 
 ## Tailscale Operatorの判断基準
 
@@ -45,6 +49,7 @@ TraefikのHTTP入口を使う検証環境では `COOKIE_SECURE=false`、将来HT
 次の条件を満たす間はOperatorを不要と判断します。
 
 - 利用者が各自のsubnet router経由でクラスタのLAN IPへ到達できる。
+- 共通のローカル名を、LAN DNSまたは各端末のhosts設定で同じIPへ解決できる。
 - 公開対象がHTTP/HTTPSのTraefik配下に限られる。
 - tailnet固有のMagicDNS名やTailscale identityをアプリ認可に使わない。
 - 部長のテスト経路をこちらのtailnetへの招待やACL変更に依存させない。
@@ -81,6 +86,6 @@ kubectl apply --server-side --dry-run=server \
   使う。写真は既存の `nfs-rwx-retain` を使う。
 - `/data` と `/uploads` は別々に検証済みバックアップを取る。同じPVCに残した
   コピーはバックアップとして扱わない。
-- 一時的なtailnet URLを `HOST_URL` にする間は、そのURLをCloudflare移行後も
+- 一時的なローカルURLを `HOST_URL` にする間は、そのURLをCloudflare移行後も
   残す場合を除き、永久ラベルを印刷しない。
 - 空の検証環境への復元試験が完了するまで `compose.yaml` を削除しない。
