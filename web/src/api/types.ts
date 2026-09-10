@@ -81,6 +81,96 @@ export type Item = {
 
   note: string
   updated_at: string
+
+  /**
+   * loan は貸出中の情報。詳細（`GET /api/items/{code}`）だけに入る。
+   *
+   * 一覧には入らないため undefined になる。**「借りられるか」はここでは分からない。**
+   * is_free_use / condition / loan から画面が組み立てる（判定をサーバに持たせると、
+   * 同じ判断がAPIと画面の2箇所に散る）。
+   */
+  loan?: ItemLoan | null
+}
+
+/**
+ * Member は代理登録の選択肢に出す利用者。**IDと名前だけ。**
+ *
+ * [[AdminUser]] と別の型にしているのは、返す範囲が違うため。
+ * 兼ねると、運営にしか見せない項目を member 向けの画面が触れる形になる。
+ */
+export type Member = {
+  id: number
+  name: string
+}
+
+/** LoanUser は貸出に関わる人。 */
+export type LoanUser = {
+  id: number
+  name: string
+}
+
+/** ItemLoan は備品詳細に載る貸出。貸出そのものより項目が少ない。 */
+export type ItemLoan = {
+  id: number
+  user: LoanUser
+  /** borrowed_at は RFC3339（JST）。 */
+  borrowed_at: string
+  /** due_date は 'YYYY-MM-DD'。 */
+  due_date: string
+  /** overdue_days は返却予定日を過ぎた日数。超過していなければ 0。 */
+  overdue_days: number
+}
+
+/**
+ * Loan は1件の貸出。Go の `loan.loanResponse` と対。
+ *
+ * 返却しても消えない。破損・紛失の追跡はこの履歴が唯一の根拠になる。
+ */
+export type Loan = {
+  id: number
+  item: { code: string; name: string }
+
+  /** user は借用者、registered_by は登録者。代理登録では異なる。 */
+  user: LoanUser
+  registered_by: LoanUser
+
+  /**
+   * is_proxy は代理登録か。**サーバが計算して返す。**
+   * 画面で2つのidを比べる形にすると、比べ忘れた画面ができる。
+   */
+  is_proxy: boolean
+
+  borrowed_at: string
+  due_date: string
+
+  /** returned_at が null なら貸出中。 */
+  returned_at: string | null
+  returned_by: LoanUser | null
+
+  overdue_days: number
+  note: string
+}
+
+/** DAMAGE_STATUSES は破損報告の状態の全て。 */
+export const DAMAGE_STATUSES = ['未確認', '確認済み', '修理済み', '廃棄'] as const
+export type DamageStatus = (typeof DAMAGE_STATUSES)[number]
+
+/** DamageReport は1件の破損報告。 */
+export type DamageReport = {
+  id: number
+  item: { code: string; name: string }
+
+  /** loan_id は貸出中に報告された場合の貸出。在庫中の報告では null。 */
+  loan_id: number | null
+
+  reporter: LoanUser
+  reported_at: string
+  description: string
+
+  status: DamageStatus
+  confirmed_by: LoanUser | null
+  confirmed_at: string | null
+  note: string
 }
 
 /**

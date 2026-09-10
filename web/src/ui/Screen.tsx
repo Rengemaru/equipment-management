@@ -118,6 +118,8 @@ function Sidebar({ isAdmin, name }: { isAdmin: boolean; name: string }) {
 
       <nav className="flex-1 overflow-y-auto px-2 pb-4">
         <SidebarLink to="/items">備品一覧</SidebarLink>
+        <SidebarLink to="/loans">貸出中</SidebarLink>
+        <SidebarLink to="/loans/mine">自分の貸出</SidebarLink>
 
         {/* 運営の画面は運営にだけ出す。member に出すと、押した先で
             「権限がありません」に当たるだけになる。 */}
@@ -126,6 +128,7 @@ function Sidebar({ isAdmin, name }: { isAdmin: boolean; name: string }) {
             <SidebarHeading>運営</SidebarHeading>
             <SidebarLink to="/admin/items">備品マスタ管理</SidebarLink>
             <SidebarLink to="/admin/users">ユーザー管理</SidebarLink>
+            <SidebarLink to="/admin/damages">破損報告</SidebarLink>
           </>
         )}
 

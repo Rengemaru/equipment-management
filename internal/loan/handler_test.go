@@ -520,3 +520,171 @@ func TestHandleBorrow_知らない項目は400(t *testing.T) {
 		t.Fatalf("status = %d, want 400 (%s)", w.Code, w.Body.String())
 	}
 }
+
+func TestHandleList_貸出中だけを返す(t *testing.T) {
+	h, s, userID := newTestHandler(t)
+	insertItem(t, s, "0002", "ドライバー", nil)
+	ctx := context.Background()
+
+	if _, err := s.Borrow(ctx, "0001", userID, Request{}); err != nil {
+		t.Fatalf("Borrow: %v", err)
+	}
+	if _, err := s.Borrow(ctx, "0002", userID, Request{}); err != nil {
+		t.Fatalf("Borrow: %v", err)
+	}
+	if _, err := s.Return(ctx, "0002", userID); err != nil {
+		t.Fatalf("Return: %v", err)
+	}
+
+	loans := decodeLoans(t, get(t, h, "/api/loans"), "loans")
+	if len(loans) != 1 {
+		t.Fatalf("貸出中 = %d件, want 1", len(loans))
+	}
+	if loans[0].Item.Code != "0001" {
+		t.Errorf("備品 = %q, want 0001", loans[0].Item.Code)
+	}
+}
+
+// 取り消し済みを一覧に出すと、誤登録が「起きた事実」として全員に見え続ける。
+func TestHandleList_取り消し済みは出さない(t *testing.T) {
+	h, s, userID := newTestHandler(t)
+
+	l, err := s.Borrow(context.Background(), "0001", userID, Request{})
+	if err != nil {
+		t.Fatalf("Borrow: %v", err)
+	}
+	if _, err := s.Cancel(context.Background(), l.ID, Actor{ID: userID}, ""); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+
+	if loans := decodeLoans(t, get(t, h, "/api/loans"), "loans"); len(loans) != 0 {
+		t.Errorf("貸出中 = %d件, want 0", len(loans))
+	}
+}
+
+func TestHandleList_期限超過で絞れる(t *testing.T) {
+	h, s, userID := newTestHandler(t)
+	insertItem(t, s, "0002", "ドライバー", nil)
+	freezeNow(t, time.Date(2026, 9, 10, 12, 0, 0, 0, jst.Zone))
+	ctx := context.Background()
+
+	// 期限を過ぎた貸出は、借用日も過去でないと作れない（返却予定日は借用日以降）。
+	past := time.Date(2026, 9, 1, 12, 0, 0, 0, jst.Zone)
+	if _, err := s.Borrow(ctx, "0001", userID, Request{BorrowedAt: past, DueDate: "2026-09-09"}); err != nil {
+		t.Fatalf("Borrow: %v", err)
+	}
+	if _, err := s.Borrow(ctx, "0002", userID, Request{DueDate: "2026-09-30"}); err != nil {
+		t.Fatalf("Borrow: %v", err)
+	}
+
+	loans := decodeLoans(t, get(t, h, "/api/loans?overdue=1"), "loans")
+	if len(loans) != 1 {
+		t.Fatalf("超過 = %d件, want 1", len(loans))
+	}
+	if loans[0].Item.Code != "0001" {
+		t.Errorf("備品 = %q, want 0001", loans[0].Item.Code)
+	}
+	if loans[0].OverdueDays != 1 {
+		t.Errorf("超過日数 = %d, want 1", loans[0].OverdueDays)
+	}
+}
+
+func TestHandleList_借用者と語句で絞れる(t *testing.T) {
+	h, s, userID := newTestHandler(t)
+	other := insertUser(t, s, "佐藤", true)
+	insertItem(t, s, "0002", "ドライバー", nil)
+	ctx := context.Background()
+
+	if _, err := s.Borrow(ctx, "0001", userID, Request{}); err != nil {
+		t.Fatalf("Borrow: %v", err)
+	}
+	if _, err := s.Borrow(ctx, "0002", other, Request{}); err != nil {
+		t.Fatalf("Borrow: %v", err)
+	}
+
+	byUser := decodeLoans(t, get(t, h, "/api/loans?user_id="+strconv.FormatInt(other, 10)), "loans")
+	if len(byUser) != 1 || byUser[0].User.ID != other {
+		t.Fatalf("借用者で絞れていない: %+v", byUser)
+	}
+
+	byQuery := decodeLoans(t, get(t, h, "/api/loans?q=ドライバー"), "loans")
+	if len(byQuery) != 1 || byQuery[0].Item.Code != "0002" {
+		t.Fatalf("語句で絞れていない: %+v", byQuery)
+	}
+
+	byName := decodeLoans(t, get(t, h, "/api/loans?q=佐藤"), "loans")
+	if len(byName) != 1 || byName[0].User.ID != other {
+		t.Fatalf("借用者名で絞れていない: %+v", byName)
+	}
+}
+
+func TestHandleMine_貸出中と履歴を1回で返す(t *testing.T) {
+	h, s, userID := newTestHandler(t)
+	other := insertUser(t, s, "佐藤", true)
+	insertItem(t, s, "0002", "ドライバー", nil)
+	insertItem(t, s, "0003", "脚立", nil)
+	ctx := context.Background()
+
+	if _, err := s.Borrow(ctx, "0001", userID, Request{}); err != nil {
+		t.Fatalf("Borrow: %v", err)
+	}
+	if _, err := s.Borrow(ctx, "0002", userID, Request{}); err != nil {
+		t.Fatalf("Borrow: %v", err)
+	}
+	if _, err := s.Return(ctx, "0002", userID); err != nil {
+		t.Fatalf("Return: %v", err)
+	}
+	// 他人の貸出は出さない。
+	if _, err := s.Borrow(ctx, "0003", other, Request{}); err != nil {
+		t.Fatalf("Borrow: %v", err)
+	}
+
+	w := get(t, h, "/api/loans/mine")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (%s)", w.Code, w.Body.String())
+	}
+
+	active := decodeLoans(t, w, "active")
+	if len(active) != 1 || active[0].Item.Code != "0001" {
+		t.Errorf("貸出中 = %+v", active)
+	}
+	returned := decodeLoans(t, w, "returned")
+	if len(returned) != 1 || returned[0].Item.Code != "0002" {
+		t.Errorf("履歴 = %+v", returned)
+	}
+}
+
+func TestHandleMine_limitの指定が不正なら400(t *testing.T) {
+	h, _, _ := newTestHandler(t)
+
+	if w := get(t, h, "/api/loans/mine?limit=0"); w.Code != http.StatusBadRequest {
+		t.Errorf("limit=0: status = %d, want 400", w.Code)
+	}
+	if w := get(t, h, "/api/loans/mine?limit=abc"); w.Code != http.StatusBadRequest {
+		t.Errorf("limit=abc: status = %d, want 400", w.Code)
+	}
+}
+
+// get は経路にリクエストを流す。
+func get(t *testing.T, h *testHandler, path string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+
+	return w
+}
+
+// decodeLoans は一覧の応答から key の配列を読む。
+func decodeLoans(t *testing.T, w *httptest.ResponseRecorder, key string) []loanResponse {
+	t.Helper()
+
+	var got map[string][]loanResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答が JSON でない: %v (%s)", err, w.Body.String())
+	}
+	return got[key]
+}
