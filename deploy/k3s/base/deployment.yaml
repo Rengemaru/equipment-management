@@ -49,11 +49,9 @@ spec:
               value: /data/app.db
             - name: UPLOAD_DIR
               value: /uploads
-            - name: COOKIE_SECURE
-              value: "true"
           envFrom:
             - secretRef:
-                # Must contain HOST_URL and SESSION_SECRET. SMTP_* keys are optional.
+                # Must contain HOST_URL, SESSION_SECRET, and COOKIE_SECURE.
                 name: equipment-management-runtime
           startupProbe:
             httpGet:

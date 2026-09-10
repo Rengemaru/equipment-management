@@ -3,10 +3,9 @@ kind: Kustomization
 resources:
   - ../../base
   - traefik-ingress.yaml
-  - tailscale-ingress.yaml
 
 # Set this to a sha-* tag published by the container-image workflow before apply.
 images:
   - name: equipment-management
     newName: ghcr.io/ruwseid/equipment-management
-    newTag: 0.0.0-unpublished
+    newTag: sha-c5d59b4
