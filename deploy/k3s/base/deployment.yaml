@@ -23,8 +23,6 @@ spec:
       automountServiceAccountToken: false
       nodeSelector:
         kubernetes.io/hostname: k3s-server
-      imagePullSecrets:
-        - name: equipment-management-registry
       securityContext:
         runAsNonRoot: true
         runAsUser: 65534

@@ -11,18 +11,14 @@
 - `equipment-management/equipment-management-runtime`
   - 必須: `HOST_URL`, `SESSION_SECRET`, `COOKIE_SECURE`
   - 任意: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`
-- `equipment-management/equipment-management-registry`
-  - GHCRのパッケージが非公開の間だけ必要
-
-秘密値をシェル履歴へ残さないよう、権限を600にした環境変数ファイルと
-Docker設定ファイルから作成します。
+秘密値をシェル履歴へ残さないよう、権限を600にした環境変数ファイルから
+作成します。使用するGHCRイメージは匿名で取得できることを確認済みのため、
+イメージ取得用Secretは作成しません。
 
 ```sh
 kubectl apply -f deploy/k3s/base/namespace.yaml
 kubectl -n equipment-management create secret generic equipment-management-runtime \
   --from-env-file=/secure/path/equipment-management.env
-kubectl -n equipment-management create secret docker-registry equipment-management-registry \
-  --from-file=/secure/path/docker-config.json
 ```
 
 `SESSION_SECRET` は32文字以上のランダム値にします。subnet router経由で
