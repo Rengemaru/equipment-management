@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: equipment-management-tailnet
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: equipment-management
+    app.kubernetes.io/component: tailnet-entrypoint
+  annotations:
+    tailscale.com/hostname: equipment-management
+spec:
+  ingressClassName: tailscale
+  defaultBackend:
+    # Tailscale terminates HTTPS, then hands the request to Traefik. The app route
+    # remains owned by Traefik and cloudflared can target this same Service later.
+    service:
+      name: traefik
+      port:
+        name: web
+  tls:
+    - hosts:
+        - equipment-management

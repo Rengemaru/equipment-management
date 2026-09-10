@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: equipment-management-data
+  namespace: equipment-management
+  labels:
+    app.kubernetes.io/name: equipment-management
+    app.kubernetes.io/component: database
+spec:
+  storageClassName: equipment-management-local-retain
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

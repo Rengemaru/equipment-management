@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: equipment-management
+  namespace: equipment-management
+  labels:
+    app.kubernetes.io/name: equipment-management
+    app.kubernetes.io/component: routing
+spec:
+  ingressClassName: traefik
+  rules:
+    # Replace TAILNET_NAME before deployment. Keeping a non-resolving placeholder
+    # prevents an accidental hostless route through Traefik's LAN entrypoints.
+    - host: equipment-management.TAILNET_NAME.ts.net
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: equipment-management
+                port:
+                  name: http

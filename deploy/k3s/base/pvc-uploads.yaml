@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: equipment-management-uploads
+  namespace: equipment-management
+  labels:
+    app.kubernetes.io/name: equipment-management
+    app.kubernetes.io/component: uploads
+spec:
+  storageClassName: nfs-rwx-retain
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
