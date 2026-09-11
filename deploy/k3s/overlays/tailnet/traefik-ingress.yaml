@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: equipment-management
+  namespace: equipment-management
+  labels:
+    app.kubernetes.io/name: equipment-management
+    app.kubernetes.io/component: routing
+spec:
+  ingressClassName: traefik
+  rules:
+    # Both operators reach the same LAN through their own Tailscale subnet
+    # router. Keep this name independent from either tailnet, and do not use a
+    # hostless / rule because it would shadow other Traefik applications.
+    - host: equipment-management.home.arpa
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: equipment-management
+                port:
+                  name: http

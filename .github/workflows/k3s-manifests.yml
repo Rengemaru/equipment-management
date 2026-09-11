@@ -1,0 +1,36 @@
+name: k3s manifests
+
+on:
+  push:
+    paths:
+      - 'deploy/k3s/**'
+      - '.github/workflows/k3s-manifests.yml'
+  pull_request:
+    paths:
+      - 'deploy/k3s/**'
+      - '.github/workflows/k3s-manifests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    name: Render Kustomize overlay
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-kubectl@v4
+      - name: Render tailnet overlay
+        run: kubectl kustomize deploy/k3s/overlays/tailnet > /tmp/equipment-management.yaml
+      - name: Reject committed Secret values
+        run: |
+          if grep -Eq '^kind: Secret$' /tmp/equipment-management.yaml; then
+            echo '::error::Rendered manifests must not contain a Secret. Create runtime secrets outside Git.'
+            exit 1
+          fi
+      - name: Reject latest image tag
+        run: |
+          if grep -Eq 'image: .*:latest([[:space:]]|$)' /tmp/equipment-management.yaml; then
+            echo '::error::Use an immutable sha-* image tag, not latest.'
+            exit 1
+          fi
