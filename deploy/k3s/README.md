@@ -16,33 +16,33 @@
 
 ## マニフェストの構成
 
-2026年9月11日時点で、次の構成を実機確認済みです。
+2026年9月12日時点で、アプリ本体とLAN内経路は実機確認済みです。
+Cloudflare経路は、TunnelとDNSを先に作成し、クラスタへの適用前です。
 
 | 対象 | 設定 |
 |---|---|
 | Namespace | `equipment-management` |
-| アクセスURL | `http://equipment-management.home.arpa` |
+| 公開URL | `https://eq.fukupro.club` |
+| LAN内の予備URL | `http://equipment-management.home.arpa` |
 | Traefikの代表IP | `192.168.13.150` |
 | SQLite | `equipment-management-data` PVC、1GiB |
 | 写真 | `equipment-management-uploads` PVC、2GiB |
 | コンテナ | `ghcr.io/ruwseid/equipment-management:sha-c5d59b4` |
-| Pod数 | 1 |
+| Pod数 | アプリ1、cloudflared 2 |
 | 配置先 | `k3s-server` |
 
-アプリはTailscale Kubernetes Operatorを使いません。
-利用者は各自のTailscale subnet routerからLANへ入り、Traefikを経由してアクセスします。
-
-独自ドメインとCloudflare Tunnelは未導入です。
-現在のURLはデモ用であり、永久ラベルへ印刷するURLではありません。
+通常の利用者はCloudflare Tunnel経由で公開URLへアクセスします。
+cloudflaredは同じNamespaceからClusterIP Serviceへ直接接続し、外部からクラスタへの着信ポートは開けません。
+LAN内では従来どおり、各自のTailscale subnet routerからTraefik経由の予備URLへアクセスできます。
 
 ## 作業の全体像
 
 初回デプロイは次の順序で行います。
 
 1. k3sへの接続とストレージを確認する。
-2. アクセス名をLAN DNSまたは端末のhostsへ登録する。
+2. Cloudflareの公開ホスト名と、必要ならLAN内の予備名を確認する。
 3. コンテナイメージのタグを確認する。
-4. 実行時Secretを作る。
+4. 実行時SecretとTunnelトークンSecretを作る。
 5. マニフェストを検証して適用する。
 6. 最初の管理者を作る。
 7. 画面から備品データを登録する。
@@ -110,7 +110,7 @@ Traefikは `READY 1/1`、NFS CSIのPodは `Running` である必要がありま�
 NFSの実体は `192.168.13.151` のNFS VMです。
 このVMと、そのデータディスクは共有ストレージですが、ストレージHAではありません。
 
-## アクセス名を設定する
+## LAN内の予備アクセス名を設定する
 
 TraefikはHost名でアプリを振り分けます。
 IPアドレスだけでアクセスすると、既存のOpen WebUIが表示されるのが正常です。
@@ -132,7 +132,8 @@ hostsファイルの場所は次のとおりです。
 - macOSまたはLinux：`/etc/hosts`
 - Windows：`C:\Windows\System32\drivers\etc\hosts`
 
-部長側の端末にも同じ設定が必要です。
+公開URLだけを使う端末には、この設定は不要です。
+LAN内の予備経路を使う端末には同じ設定が必要です。
 設定後、名前が同じIPへ解決されることを確認します。
 
 ```sh
@@ -143,13 +144,14 @@ ICMPを許可していない環境では、後述する `curl` の確認だけ�
 
 ## コンテナイメージを確認する
 
-通常のデプロイでは、[オーバーレイ設定](overlays/tailnet/kustomization.yaml)に記載済みのタグを使います。
+通常のデプロイでは、[Cloudflareオーバーレイ](overlays/cloudflare/kustomization.yaml)が[Tailnetオーバーレイ](overlays/tailnet/kustomization.yaml)を取り込み、そこに記載済みのアプリタグを使います。
 タグは `latest` ではなく、`sha-` から始まる変更不能な値でなければなりません。
 
 現在の値を確認します。
 
 ```sh
 rg -n 'newName|newTag' deploy/k3s/overlays/tailnet/kustomization.yaml
+rg -n 'image:' deploy/k3s/overlays/cloudflare/cloudflared-deployment.yaml
 ```
 
 アプリのコードを更新した場合は、GitHub Actionsの `Container image` が成功してから、そのコミットに対応する `sha-xxxxxxx` へ `newTag` を更新します。
@@ -164,7 +166,7 @@ gh run list --repo ruwseid/equipment-management \
 
 ## 実行時Secretを作る
 
-### HTTPデモ用の設定
+### 公開URL用の設定
 
 SecretにはURL、セッション署名鍵、Cookie設定を保存します。
 SecretのYAMLや平文の値はGitへ追加しません。
@@ -176,10 +178,10 @@ SecretのYAMLや平文の値はGitへ追加しません。
 RUNTIME_ENV_FILE=$(mktemp)
 chmod 600 "$RUNTIME_ENV_FILE"
 {
-  printf '%s\n' 'HOST_URL=http://equipment-management.home.arpa'
+  printf '%s\n' 'HOST_URL=https://eq.fukupro.club'
   printf 'SESSION_SECRET='
   openssl rand -base64 48
-  printf '%s\n' 'COOKIE_SECURE=false'
+  printf '%s\n' 'COOKIE_SECURE=true'
 } > "$RUNTIME_ENV_FILE"
 ```
 
@@ -199,6 +201,44 @@ Secretが存在することだけを確認します。
 
 ```sh
 kubectl -n equipment-management get secret equipment-management-runtime
+```
+
+`HOST_URL` はQRへ埋め込まれるため、末尾に `/` を付けません。
+HTTPS公開では `COOKIE_SECURE=true` を維持します。
+
+### Tunnelトークンを登録する
+
+Cloudflare Zero Trustの `equipment-management` Tunnelからトークンをコピーし、画面へ表示しない形でSecretへ登録します。
+トークンをGit、チャット、シェル履歴へ保存しません。
+
+```sh
+TUNNEL_TOKEN_FILE=$(mktemp)
+chmod 600 "$TUNNEL_TOKEN_FILE"
+trap 'rm -f "$TUNNEL_TOKEN_FILE"' EXIT HUP INT TERM
+printf 'Tunnel token: ' >&2
+read -rs CLOUDFLARED_TOKEN
+printf '\n' >&2
+printf '%s' "$CLOUDFLARED_TOKEN" > "$TUNNEL_TOKEN_FILE"
+unset CLOUDFLARED_TOKEN
+kubectl -n equipment-management create secret generic cloudflared-token \
+  --from-file=token="$TUNNEL_TOKEN_FILE" \
+  --dry-run=client -o yaml | kubectl apply -f -
+rm -f "$TUNNEL_TOKEN_FILE"
+unset TUNNEL_TOKEN_FILE
+trap - EXIT HUP INT TERM
+kubectl -n equipment-management get secret cloudflared-token
+```
+
+Kubernetes Secretの値は標準では暗号化ではなくbase64表現です。
+NamespaceのSecretを読めるRBAC権限を必要最小限にし、漏えい時はCloudflare側でTunnelトークンをローテーションします。
+
+### LAN内HTTPだけで使う場合
+
+Cloudflareを一時停止し、Tailnetオーバーレイだけを使う場合は、実行時Secretを次の値へ変更します。
+
+```text
+HOST_URL=http://equipment-management.home.arpa
+COOKIE_SECURE=false
 ```
 
 ### SMTPを使う場合
@@ -226,7 +266,7 @@ SMTP_FROM=備品管理 <noreply@example.ac.jp>
 最初に、Kustomizeが生成するYAMLをローカルで検証します。
 
 ```sh
-kubectl kustomize deploy/k3s/overlays/tailnet \
+kubectl kustomize deploy/k3s/overlays/cloudflare \
   > /tmp/equipment-management.yaml
 kubectl create --dry-run=client --validate=strict \
   -f /tmp/equipment-management.yaml -o name
@@ -236,7 +276,7 @@ kubectl create --dry-run=client --validate=strict \
 
 ```sh
 kubectl apply --server-side --dry-run=server \
-  -k deploy/k3s/overlays/tailnet
+  -k deploy/k3s/overlays/cloudflare
 ```
 
 `serverside-applied (server dry run)` と表示されれば、クラスタは変更されていません。
@@ -247,12 +287,14 @@ kubectl apply --server-side --dry-run=server \
 検証が成功したら適用します。
 
 ```sh
-kubectl apply -k deploy/k3s/overlays/tailnet
+kubectl apply -k deploy/k3s/overlays/cloudflare
 kubectl -n equipment-management rollout status \
   deployment/equipment-management --timeout=5m
+kubectl -n equipment-management rollout status \
+  deployment/cloudflared --timeout=5m
 ```
 
-`successfully rolled out` と表示されたら起動しています。
+両方で `successfully rolled out` と表示されたら起動しています。
 
 ## 初回データを用意する
 
@@ -307,19 +349,19 @@ kubectl -n equipment-management exec \
 一行でもエラーがある場合は全件取り込まれないため、途中まで登録されることはありません。
 
 デモ確認だけを行う間は、永久ラベルを印刷しません。
-現在の `HOST_URL` をQRへ埋め込むと、Cloudflareの正式URLへ変更した後にそのQRを貼り替える必要があります。
+公開URL `https://eq.fukupro.club` でログイン、画像表示、QR読み取りを確認してから本番ラベルを印刷します。
 
 ## ステータスを確認する
 
 ### 一括確認
 
 ```sh
-kubectl -n equipment-management get pod,pvc,service,ingress -o wide
+kubectl -n equipment-management get pod,pvc,service,ingress,pdb -o wide
 ```
 
 正常時の条件は次のとおりです。
 
-- Podが `1/1 Running` である。
+- アプリPodが1個、cloudflared Podが2個、すべて `1/1 Running` である。
 - Podの `RESTARTS` が増え続けていない。
 - 二つのPVCが `Bound` である。
 - IngressのHostが `equipment-management.home.arpa` である。
@@ -345,10 +387,19 @@ echo
 curl -fsS http://equipment-management.home.arpa/healthz
 ```
 
+公開経路はHTTPSで確認します。
+
+```sh
+curl -fsS https://eq.fukupro.club/healthz
+echo
+```
+
+`ok` と表示されれば、Cloudflare、Tunnel接続、Service、アプリ、SQLiteまで到達しています。
+
 ブラウザでは次のURLを開きます。
 
 ```text
-http://equipment-management.home.arpa
+https://eq.fukupro.club
 ```
 
 ### ServiceとPodの接続を確認する
@@ -380,10 +431,12 @@ kubectl -n equipment-management get events \
 
 ```sh
 kubectl apply --server-side --dry-run=server \
-  -k deploy/k3s/overlays/tailnet
-kubectl apply -k deploy/k3s/overlays/tailnet
+  -k deploy/k3s/overlays/cloudflare
+kubectl apply -k deploy/k3s/overlays/cloudflare
 kubectl -n equipment-management rollout status \
   deployment/equipment-management --timeout=5m
+kubectl -n equipment-management rollout status \
+  deployment/cloudflared --timeout=5m
 ```
 
 起動時にDBマイグレーションが自動適用されます。
@@ -421,19 +474,22 @@ kubectl -n equipment-management wait \
 再開するときはマニフェストを再適用します。
 
 ```sh
-kubectl apply -k deploy/k3s/overlays/tailnet
+kubectl apply -k deploy/k3s/overlays/cloudflare
 kubectl -n equipment-management rollout status \
   deployment/equipment-management --timeout=5m
 ```
 
 ### テスト用の実行リソースを片付ける
 
-次の手順はアプリ、公開入口、テスト用Secretを削除しますが、DBと写真のPVCは残します。
+次の手順はアプリ、公開入口、Tunnelコネクター、テスト用Secretを削除しますが、DBと写真のPVCは残します。
 
 ```sh
 kubectl -n equipment-management delete ingress equipment-management
+kubectl -n equipment-management delete deployment cloudflared
+kubectl -n equipment-management delete pdb cloudflared
 kubectl -n equipment-management delete service equipment-management
 kubectl -n equipment-management delete deployment equipment-management
+kubectl -n equipment-management delete secret cloudflared-token
 kubectl -n equipment-management delete secret equipment-management-runtime
 kubectl -n equipment-management wait \
   --for=delete pod \
@@ -448,7 +504,7 @@ kubectl -n equipment-management get pods
 kubectl -n equipment-management get pvc
 ```
 
-`kubectl delete -k deploy/k3s/overlays/tailnet` は使用しません。
+`kubectl delete -k deploy/k3s/overlays/cloudflare` は使用しません。
 このコマンドはPVCまで削除対象に含むためです。
 
 ## データを守るための制約
@@ -606,9 +662,8 @@ curl -fsS \
 ### ログイン後にログイン画面へ戻る
 
 HTTPで `COOKIE_SECURE=true` を使うと、ブラウザがセッションCookieを保存しません。
-現在のHTTPデモでは `COOKIE_SECURE=false` にします。
-
-CloudflareでHTTPS化した後は `COOKIE_SECURE=true` に戻します。
+LAN内のHTTP予備経路だけを使う場合は `COOKIE_SECURE=false` にします。
+公開URLを使う通常運用では `COOKIE_SECURE=true` にします。
 Secretを更新した後はDeploymentを再起動します。
 
 ### `forbidden` または `Unauthorized` と表示される
@@ -648,7 +703,7 @@ kubectl -n equipment-management exec \
 QRには作成時点の `HOST_URL` が埋め込まれます。
 Secretを直しても、印刷済みQRの内容は変わりません。
 
-デモ期間は永久ラベルを印刷せず、Cloudflareの正式URLを決めてから本番ラベルを作成します。
+本番ラベルには `https://eq.fukupro.club` を使用し、公開経路の動作確認後に印刷します。
 
 ## Tailscale Operatorの判断基準
 
@@ -669,15 +724,39 @@ Secretを直しても、印刷済みQRの内容は変わりません。
 
 部長と別々のtailnetを使う間は、片方のtailnetだけで有効なMagicDNS名を共有URLにしません。
 
-## Cloudflareへ切り替えるときの変更点
+## Cloudflare Tunnelの構成と復旧
 
-独自ドメインを取得してCloudflare Tunnelを導入するときは、次の三点を同時に変更します。
+Cloudflare Zero Trustでは次の公開アプリケーションルートを使います。
 
-1. Ingressの `host` を正式な公開名へ変更する。
-2. Secretの `HOST_URL` を `https://<正式な公開名>` へ変更する。
-3. Secretの `COOKIE_SECURE` を `true` へ変更する。
+```text
+https://eq.fukupro.club -> http://equipment-management:80
+```
 
-Cloudflare側は正式な公開名からTraefikへ転送します。
-アプリ、Service、PVCの構成は変更しません。
+cloudflaredはアプリと同じ `equipment-management` Namespaceにいるため、Service名を直接解決できます。
+Cloudflare向けにIngressのHostを追加する必要はありません。
+2個のcloudflared Podは同じTunnelへ接続し、可能なら別ノードへ配置されます。
+これはTunnel接続の冗長化であり、SQLiteを使うアプリ本体やNFSのHA化ではありません。
+
+状態を確認します。
+
+```sh
+kubectl -n equipment-management get pods \
+  -l app.kubernetes.io/name=cloudflared -o wide
+kubectl -n equipment-management logs \
+  deployment/cloudflared --tail=100
+```
+
+Tunnelだけを緊急停止する場合は、公開ホスト名をCloudflare側で無効化してからcloudflaredを0台にします。
+
+```sh
+kubectl -n equipment-management scale deployment/cloudflared --replicas=0
+```
+
+再開時はCloudflareの公開ホスト名が `eq.fukupro.club` のままであることを確認し、オーバーレイを再適用します。
+
+```sh
+kubectl apply -k deploy/k3s/overlays/cloudflare
+kubectl -n equipment-management rollout status deployment/cloudflared --timeout=5m
+```
 
 切り替え後にログイン、備品詳細、画像表示、QR読み取りを確認してから永久ラベルを印刷します。
