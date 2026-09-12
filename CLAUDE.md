@@ -245,10 +245,8 @@ PR 本文に `Closes #N` を書いたうえで、マージ後に `gh issue close
 │   └── devcontainer.json      # VS Code が dev サービスに接続する設定
 ├── .env.example               # 環境変数の雛形（.env はコミットしない）
 ├── Dockerfile                 # dev / build / runtime のマルチステージ
-├── deploy/
-│   └── k3s/                   # 本番のマニフェストと運用手順
-├── compose.dev.yaml           # 開発用
-├── compose.yaml               # 本番イメージを手元で確かめる用
+├── compose.dev.yaml           # 開発用（M0）
+├── compose.yaml               # 本番用（M1の仕上げで作る）
 ├── Makefile                   # macOS / Linux
 └── make.ps1                   # Windows（Makefile と同じタスク名）
 ```
@@ -266,12 +264,9 @@ PR 本文に `Closes #N` を書いたうえで、マージ後に `gh issue close
 理由は2つ。
 
 1. **開発は macOS と Windows の両方で行う。** ローカル環境に依存させると手順が2本に分かれ、片方が必ず腐る。コンテナに入れれば、ホストの差はほぼ消える
-2. 引き継ぎ手順が**「Docker を入れて `make up`」の1本になる。** 数年で担当者が入れ替わるプロジェクトでは、これ自体が価値になる
+2. 引き継ぎ手順が**「Docker を入れて `docker compose up`」の1本になる。** 数年で担当者が入れ替わるプロジェクトでは、これ自体が価値になる
 
 前提ツールは **Docker Desktop と VS Code（Dev Containers 拡張）のみ。**
-
-**これは開発環境の話。本番は k3s で動かす**（`deploy/k3s/`、後述）。
-開発で Compose を使うことと、本番の形は別に決まっている。
 
 ### 日常の操作
 
@@ -295,10 +290,7 @@ npm run dev            # コンテナ内（web/ で）
 | Goテスト | `make test` | `.\make.ps1 test` |
 | フロント（型検査+ビルド+テスト） | `make test-web` | `.\make.ps1 test-web` |
 
-`prod-` が付くものは、**本番イメージを手元で動かして確かめる**ためのもの。
-**本番そのものではない。** 本番は k3s に載っており、操作は `kubectl` で行う
-（`deploy/k3s/README.md`）。名前を `prod-` のままにしているのは、dev と同じ名前だと
-止めるつもりで別のものを止めるため。
+本番（`compose.yaml`）を触るものは `prod-` を頭に付ける。**dev と同じ名前にすると、止めるつもりで本番を止める。**
 
 | やること | macOS | Windows (PowerShell) |
 |---|---|---|
@@ -310,10 +302,6 @@ npm run dev            # コンテナ内（web/ で）
 | 最初の admin を作る | `make create-admin LOGIN_ID=... NAME=...` | `.\make.ps1 create-admin -LoginId ... -Name ...` |
 | バックアップ | `make backup` | `.\make.ps1 backup` |
 | 復元 | `make restore FILE=...` | `.\make.ps1 restore -File ...` |
-
-**この表の `create-admin` / `backup` / `restore` は手元の Compose に対して動く。**
-本番で同じことをするには `kubectl exec` 越しに同じサブコマンドを呼ぶ
-（`deploy/k3s/README.md`）。**呼ぶものは同じで、届け方だけが違う。**
 
 **運用操作は全てバイナリのサブコマンド越しに呼ぶ。** 本番イメージは scratch で、
 シェルも `sqlite3` も入っていない。`docker compose exec app sh -c ...` は成立しない。
@@ -383,16 +371,13 @@ Go の変更反映は**コンテナの再起動で済ませる**（`make up` し
 
 ### 開発用と本番用を分ける
 
-| ファイル | 用途 |
-|---|---|
-| `compose.dev.yaml` | 開発。ソースをバインドマウントし、コンテナ内で `go run` する |
-| `compose.yaml` | **本番イメージを手元で動かして確かめる用。本番そのものではない** |
-| `deploy/k3s/` | **本番。** k3s のマニフェスト一式（後述） |
-| `.devcontainer/devcontainer.json` | VS Code が `compose.dev.yaml` の dev サービスに接続する設定 |
+| ファイル | 用途 | いつ作る |
+|---|---|---|
+| `compose.dev.yaml` | 開発。ソースをバインドマウントし、コンテナ内で `go run` する | **M0** |
+| `compose.yaml` | 本番。ビルド済みバイナリを動かす | **M1の仕上げ** |
+| `.devcontainer/devcontainer.json` | VS Code が `compose.dev.yaml` の dev サービスに接続する設定 | **M0** |
 
-`compose.yaml` を残しているのは、**本番と同じイメージ（scratch）を手元で起動して
-確かめる経路が要る**ため。k3s に上げてから初めて「シェルが無くて何もできない」と
-気付く形にしない。**ここで確かめたものが本番に載る、という順序を崩さないこと。**
+**本番用を先に書かない。** 中身が無い段階でコンテナ化しても検証できず、動かないまま腐る。
 
 `Dockerfile` も同じで、M0 では **`dev` ステージだけ**を書く。ビルド用・実行用ステージは M1 の仕上げで追加する。
 
@@ -442,10 +427,6 @@ docker compose run --rm app -restore /data/restore-src.db   # 使い捨てのコ
 docker compose start
 ```
 
-**本番（k3s）でも呼ぶものは同じ。** 届け方だけが `kubectl exec` / `kubectl cp` に変わる。
-手順は `deploy/k3s/README.md` にある。**サブコマンド側に k3s 用の分岐を作らないこと。**
-実行経路ごとに別のコードが動くと、手元で確かめたものが本番で動く保証が消える。
-
 `-restore` は **上書きより先に戻す元を検証し**、`-wal` / `-shm` ごと置き換え、
 戻した後にマイグレーションと件数の確認まで行う。**サーバを止めてから実行すること。**
 動いているサーバの足元でファイルを差し替えると壊れる。
@@ -453,31 +434,6 @@ docker compose start
 「バイナリ1つで完結させる」という方針とも一致する。**復元できることまで確認して初めて完了。**
 
 ---
-
-## 本番環境（k3s）
-
-**本番は k3s で動かす。** マニフェストは `deploy/k3s/`、手順は `deploy/k3s/README.md`。
-**運用手順を CLAUDE.md に写さないこと。** 二重に書くと必ず片方が腐る。ここには
-「なぜその形なのか」だけを置く。
-
-| 項目 | 設定 | 理由 |
-|---|---|---|
-| `replicas: 1` | Pod は常に1つ | **SQLite に2つの Pod が同時に書くと壊れる** |
-| `strategy: Recreate` | 新旧が重ならない | RollingUpdate だと入れ替えの瞬間に2つ動く |
-| `nodeSelector` | ノードを固定 | ストレージが local-path のため、他ノードへ移ると**データが無い** |
-| `reclaimPolicy: Retain` | PVC を消しても PV は残る | 消す操作を1つ間違えても記録が消えない |
-| `readOnlyRootFilesystem` | 書けるのはボリュームだけ | `/tmp` を emptyDir で別に当てている（multipart が使う） |
-| プローブ3種 | すべて `/healthz` | 起動の遅さと死亡を区別する |
-
-### 守ること
-
-- **Pod を増やさない。** SQLite を選んだ時点でスケールアウトは選択肢から外れている。
-  同時利用がほぼ発生しない規模なので、増やす動機も無い
-- **`Retain` はバックアップではない。** PV が載っているディスクが壊れれば一緒に消える。
-  **別の機器へ退避する運用が要る**（誰がやるかは未決。`docs/infrastructure-requirements.md`）
-- **写真（`/uploads`）は `-backup` に含まれない。** DBだけ戻しても写真は戻らない
-- **`deploy/k3s/README.md` に書かれたURLは仮のもの。**
-  `.home.arpa` はデモ用で、**ラベルに印刷してよいURLではない**（url-design.md §1）
 
 ## DB の扱い
 

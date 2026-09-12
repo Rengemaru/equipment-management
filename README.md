@@ -17,8 +17,7 @@
 ## 目次
 
 - [開発する](#開発する) — コードを書く人
-- [運用する](#運用する) — 本番イメージを手元で動かす人
-  （**本番の手順は [deploy/k3s/README.md](deploy/k3s/README.md)**）
+- [運用する](#運用する) — 部室のマシンで動かす人
   - [起動する](#起動する)
   - [環境変数](#環境変数)
   - [最初の admin を作る](#最初の-admin-を作る)
@@ -88,20 +87,10 @@ CI は最後の網であって、手元で確認しない口実にしない。
 
 ## 運用する
 
-> **本番は k3s で動かす。手順は [deploy/k3s/README.md](deploy/k3s/README.md) にある。**
-> この節は **本番と同じイメージを手元で動かして確かめる**ための手順で、
-> 本番そのものの操作ではない。
+**部室のマシンに必要なのは Docker だけ。** Go も Node も VS Code も要らない。
 
-なぜ手元でも動かせるようにしてあるか: 本番イメージは scratch で、シェルも
-`sqlite3` も入っていない。**k3s に上げてから「何も操作できない」と気付く形にしない**
-ため、同じイメージを手元で起動できる経路を残してある。
-
-環境変数・admin の作り方・バックアップの考え方は**本番と共通**なので、
-k3s で運用する人もこの節を読む価値がある。**違うのは届け方だけ**で、
-本番では同じサブコマンドを `kubectl exec` 越しに呼ぶ。
-
-開発用（`compose.dev.yaml`）と本番イメージ用（`compose.yaml`）は別物。
-Make のターゲットも後者は `prod-` を頭に付けてある。**混同しないこと。**
+開発用（`compose.dev.yaml`）と本番用（`compose.yaml`）は別物。
+Make のターゲットも本番側は `prod-` を頭に付けてある。**混同しないこと。**
 
 ### 起動する
 
@@ -318,8 +307,6 @@ docker compose logs -f
 | [docs/url-design.md](docs/url-design.md) | URL設計・QRの仕様・画面一覧 |
 | [docs/schema.sql](docs/schema.sql) | 現行スキーマ（参照用スナップショット） |
 | `docs/m1〜m4-implementation-spec.md` | 各マイルストーンの詳細仕様と受け入れ条件 |
-| [deploy/k3s/README.md](deploy/k3s/README.md) | **本番（k3s）のデプロイと運用手順** |
-| [docs/infrastructure-requirements.md](docs/infrastructure-requirements.md) | インフラ担当へ依頼していること・未決の条件 |
 
 **コミット履歴が唯一の引き継ぎ資料**という前提で書いてある。
 「なぜこのコードがあるのか」はコミット本文に残っている。`git log` を読むこと。
@@ -346,11 +333,7 @@ docker compose logs -f
 - **学外からアクセス可能にするか** — 不可なら M2 の事後登録・M3 の通知リンクが機能しない。
   **認証方式では解決できないネットワーク側の課題**として残っている
 - **学内SMTPが使えるか** — M1 はメールに依存しないが、M2 の代理登録通知までに確定させる
-- **ホスト名の決定** — 短いものにする。QRのセル数に直結する。
-  **現在 k3s に載っている `equipment-management.home.arpa` は仮のURL**で、
-  これを印刷してはいけない（[deploy/k3s/README.md](deploy/k3s/README.md) にも同じ注意がある）
-- **バックアップの実行主体** — `Retain` はバックアップではない。
-  別の機器へ退避する運用が要る（[docs/infrastructure-requirements.md](docs/infrastructure-requirements.md)）
+- **ホスト名の決定** — 短いものにする。QRのセル数に直結する
 - **ラベルシールの実物** — 1枚買って、QRのサイズを実測で確認する
 
 ### 次にやること
